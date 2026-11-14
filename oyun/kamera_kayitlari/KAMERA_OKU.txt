@@ -1,0 +1,1 @@
+Oyun içindeki E, R veya C eylemleri bu klasöre gerçek PNG görüntü dosyaları kaydeder. Görseller simülasyondur, gerçek Mars görüntüsü değildir.

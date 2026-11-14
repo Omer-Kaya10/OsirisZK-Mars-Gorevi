@@ -1,0 +1,17 @@
+# OsirisZk Mars Pathfinder — Netlify yayın ayarı
+# Derleme yok: dosyalar olduğu gibi yayımlanır. Oyun motoru (Python) tarayıcıda Pyodide ile çalışır.
+[build]
+  publish = "."
+  command = ""
+
+[[headers]]
+  for = "/*.py"
+  [headers.values]
+    Content-Type = "text/plain; charset=utf-8"
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
