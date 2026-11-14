@@ -9,7 +9,14 @@ export const TARGETS=[
 ];
 function duneMaterial(x,z){const n=fbm(x*.36,z*.36),h=terrainHeight(x,z),v=rng((Math.floor(x*8)+1000)*13.33+Math.floor(z*9));const dust=Math.sin(x*.28+z*.33+fbm(x*.03,z*.03)*7)*.5+.5;const f=clamp(.84+.28*n+.08*(v-.5)+.12*dust-.045*Math.max(0,h),.63,1.16);return vary(lerpColor(P.rust,P.sand,.35+.23*dust),f);}
 function lerpColor(a,b,t){return a.map((v,i)=>lerp(v,b[i],t));}
-export function buildTerrain(renderer){const terrain=new MeshBuilder();const grid=166,span=212,step=span/grid;for(let z=0;z<grid;z++)for(let x=0;x<grid;x++){
+export const TERRAIN_GRID=166,TERRAIN_SPAN=212;
+// Height of the actual triangulated terrain mesh (used so tire tracks lie exactly on the visible ground).
+export function terrainMeshHeight(x,z){const step=TERRAIN_SPAN/TERRAIN_GRID,half=TERRAIN_SPAN/2;
+ const gx=clamp((x+half)/step,0,TERRAIN_GRID-1e-6),gz=clamp((z+half)/step,0,TERRAIN_GRID-1e-6);const i=Math.floor(gx),j=Math.floor(gz),u=gx-i,v=gz-j;
+ const x0=-half+i*step,z0=-half+j*step,x1=x0+step,z1=z0+step;
+ const ha=terrainHeight(x0,z0),hb=terrainHeight(x1,z0),hc=terrainHeight(x1,z1),hd=terrainHeight(x0,z1);
+ return u+v<=1?ha+(hb-ha)*u+(hd-ha)*v:hc+(hd-hc)*(1-u)+(hb-hc)*(1-v);}
+export function buildTerrain(renderer){const terrain=new MeshBuilder();const grid=TERRAIN_GRID,span=TERRAIN_SPAN,step=span/grid;for(let z=0;z<grid;z++)for(let x=0;x<grid;x++){
  const x0=-span/2+x*step,x1=x0+step,z0=-span/2+z*step,z1=z0+step;
  const a=[x0,terrainHeight(x0,z0),z0],b=[x1,terrainHeight(x1,z0),z0],c=[x1,terrainHeight(x1,z1),z1],d=[x0,terrainHeight(x0,z1),z1];
  terrain.tri(a,d,b,duneMaterial(x0,z0));terrain.tri(b,d,c,duneMaterial(x1,z1));}
@@ -46,6 +53,9 @@ export function buildEnvironment(renderer){const b=new MeshBuilder();for(let i=0
  const route=new MeshBuilder();let previous={x:0,z:15};for(const site of TARGETS){const dx=site.x-previous.x,dz=site.z-previous.z,total=Math.hypot(dx,dz),steps=Math.floor(total/3.5);for(let k=1;k<steps;k++){const t=k/steps,x=previous.x+dx*t,z=previous.z+dz*t,y=terrainHeight(x,z)+.12,ang=Math.atan2(dx,dz);route.with(matmul(T(x,y,z),RY(ang)),()=>route.box(0,0,0,.08,.025,.45,P.gold));}previous=site;}
  return {scenery,route:route.build(renderer)};
 }
+// Rocker-bogie wheel hubs in rover space [x,y,z]: front pair, middle pair, rear pair. Front = -Z.
+export const ROVER_WHEELS=[[-1.41,-.73,-1.11],[1.41,-.73,-1.11],[-1.48,-.73,0],[1.48,-.73,0],[-1.41,-.73,1.12],[1.41,-.73,1.12]];
+export const ROVER_WHEEL_RADIUS=.49;
 export function buildRover(renderer){const b=new MeshBuilder();
  // Lower body and titanium frame.
  b.box(0,-.02,0,2.15,.35,2.85,P.dark);b.box(0,.18,-.10,2.45,.48,3.15,P.steel2);
@@ -118,7 +128,7 @@ export function buildRover(renderer){const b=new MeshBuilder();
  }
  for(let k=0;k<7;k++){const a=k*Math.PI*2/7;w.with(RY(a),()=>w.box(.0,0,.38,.18,.36,.10,P.black));}
  });
- return {body,wheel:w.build(renderer),wheelLocs:[[-1.41,-.73,-1.11],[1.41,-.73,-1.11],[-1.48,-.73,0],[1.48,-.73,0],[-1.41,-.73,1.12],[1.41,-.73,1.12]]};
+ return {body,wheel:w.build(renderer),wheelLocs:ROVER_WHEELS};
 }
 export function buildDrone(renderer){const b=new MeshBuilder();
  b.box(0,0,0,.33,.24,.35,P.gold);b.box(0,.03,-.15,.28,.16,.10,P.white);
@@ -132,10 +142,26 @@ export function buildDrone(renderer){const b=new MeshBuilder();
  b.tube([x*.37,-.46,-.38],[x*.37,-.46,.40],.023,P.white);
  b.tube([x*.37,-.46,-.38],[x*.37,-.46,-.28],.023,P.amber);
  }
- b.tube([0,.10,0],[0,.62,0],.045,P.steel2);
+ // Stationary mast: rotors spin around it, the solar array sits on its tip (as on Ingenuity).
+ b.tube([0,.10,0],[0,.74,0],.045,P.steel2);
  b.cylinder(0,.33,0,.095,.095,.04,P.black);
  b.cylinder(0,.61,0,.075,.075,.05,P.white);
  b.box(0,.16,.0,.12,.04,.22,P.solar2);
+ // Nose marker: small amber navigation lamp under the camera pod so heading is readable from afar.
+ b.box(0,-.10,-.205,.07,.035,.02,P.amber);
+ // SOLAR ARRAY — fixed, above the upper rotor. Long side across (X), front edge toward -Z.
+ b.cylinder(0,.715,0,.055,.07,.03,P.dark,12);
+ b.box(0,.735,0,.20,.018,.05,P.steel);
+ b.box(0,.735,0,.05,.018,.16,P.steel);
+ b.box(0,.755,0,.54,.022,.34,P.dark);           // carbon backing frame
+ b.box(0,.768,0,.50,.010,.30,P.solar);          // cell substrate
+ for(let u=0;u<7;u++)for(let v=0;v<4;v++){      // 7 × 4 photovoltaic cells
+  b.box(-.2142+u*.0714,.775,-.1035+v*.069,.064,.006,.061,((u+v)&1)?P.solar2:P.solar);
+ }
+ for(const z of [-.152,.152])b.box(0,.774,z,.52,.008,.012,P.gold);   // busbars
+ for(const x of [-.262,.262])b.box(x,.774,0,.012,.008,.32,P.gold);
+ b.box(.29,.75,.12,.035,.02,.035,P.white);       // sun sensor / antenna stub
+ b.tube([.29,.76,.12],[.29,.86,.12],.006,P.steel2);
  const body=b.build(renderer);
  // The rotors are separate moving meshes: two coaxial counter-rotating disks.
  const rotor=(top)=>{
@@ -154,5 +180,7 @@ export function buildDrone(renderer){const b=new MeshBuilder();
  return {body,top:rotor(true),bottom:rotor(false),shadow:shadow.build(renderer)};
 }
 export function buildExtra(renderer){const marker=new MeshBuilder();marker.ring(0,0,0,.92,1.02,P.teal,50);marker.ring(0,0,0,1.27,1.31,P.amber,50);const pad=marker.build(renderer);
- const beacons=new MeshBuilder();for(let i=0;i<16;i++){const a=i*Math.PI*2/16,rad=4.5+i%3*.4,x=Math.cos(a)*rad,z=Math.sin(a)*rad;beacons.box(x,.025,z,.13,.05,.21,P.steel2);}return {pad,beacons:beacons.build(renderer)};
+ const beacons=new MeshBuilder();for(let i=0;i<16;i++){const a=i*Math.PI*2/16,rad=4.5+i%3*.4,x=Math.cos(a)*rad,z=Math.sin(a)*rad;beacons.box(x,.025,z,.13,.05,.21,P.steel2);}
+ const dust=new MeshBuilder();dust.sphere(0,0,0,1,.72,1,[.97,.74,.58],4,9);
+ return {pad,beacons:beacons.build(renderer),dust:dust.build(renderer),tracks:renderer.upload(new Float32Array(0))};
 }

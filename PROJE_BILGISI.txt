@@ -1,4 +1,4 @@
-OSIRISZK 3D MARS PATHFINDER | 2.0
+OSIRISZK 3D MARS PATHFINDER | 2.3
 ================================
 Gerçek 3B motor: WebGL2, saf JavaScript (Three.js dahil harici bağımlılık yok).
 İnternet erişimi, Node.js, pip, npm gerektirmez.
@@ -9,7 +9,9 @@ Windows kullanımı:
 3) Tarayıcı otomatik açılır.
 
 Kontroller:
-M: 3 hedefli otonom görev; TAB araç; WASD yön; SPACE irtifa yükselt; SHIFT indir.
+M: 3 hedefli otonom görev; TAB araç; WASD / ok tuşları hareket; ← → (veya Q E) drone dönüşü;
+SPACE irtifa yükselt; SHIFT indir. Gezginde SHIFT turbo, SPACE fren.
+Xbox kumandası: bağlayıp bir düğmeye basın; tüm tuş haritası için ? KILAVUZ (kumandada ⧉).
 F: gezgin platformuna iniş; G: drone taraması; R: gezgin kaya incelemesi.
 B: batarya değişimi; T: veri aktarımı; P: duraklat.
 1-4: farklı 3B kamera açıları. Sol fare: kamerayı döndür; tekerlek: yakınlaştır.
