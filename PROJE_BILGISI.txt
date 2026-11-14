@@ -1,0 +1,21 @@
+OSIRISZK 3D MARS PATHFINDER | 2.0
+================================
+Gerçek 3B motor: WebGL2, saf JavaScript (Three.js dahil harici bağımlılık yok).
+İnternet erişimi, Node.js, pip, npm gerektirmez.
+
+Windows kullanımı:
+1) ZIP dosyasını sağ tık / Tümünü ayıkla.
+2) BASLAT_WINDOWS.bat dosyasına çift tıkla; veya Python IDLE'da baslat.py dosyasını F5 ile çalıştır.
+3) Tarayıcı otomatik açılır.
+
+Kontroller:
+M: 3 hedefli otonom görev; TAB araç; WASD yön; SPACE irtifa yükselt; SHIFT indir.
+F: gezgin platformuna iniş; G: drone taraması; R: gezgin kaya incelemesi.
+B: batarya değişimi; T: veri aktarımı; P: duraklat.
+1-4: farklı 3B kamera açıları. Sol fare: kamerayı döndür; tekerlek: yakınlaştır.
+Gündüz/gün batımı ve görev raporu düğmeleri üst araç çubuğunda.
+
+Dikkat:
+Arazi, araç ve görevler gerçek bir Mars görevini temel alan temsili ve kurgusal modeldir.
+Jezero bölgesi NASA DEM verilerinden oluşturulmamıştır. Gerçek uçuş dinamiği simülasyonu
+veya mühendislik doğrulama yazılımı değildir.
