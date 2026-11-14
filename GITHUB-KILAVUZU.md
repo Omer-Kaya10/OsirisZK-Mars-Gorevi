@@ -94,6 +94,7 @@ Takımın adresi yayına girince oradaki kopya bu depoya yönlendirilecek; böyl
 - **Başlat**'a basın, **Space** ile kalkın, **WASD** ile uçun.
 - Sağ üstteki **TR / EN** düğmesiyle dili değiştirin; `?dil=en` ile İngilizce bağlantı paylaşabilirsiniz.
 - `…/modeller/` sayfasında araç çizimleri ve değerleri görünmeli.
+- `…/3b/` adresinde 3B oyun açılmalı; **OTONOM KEŞİF**'e basınca drone üç kayayı tarayıp gezgine dönmeli.
 
 ## 6. Öğrencilerle çalışma kuralları
 - **Ana dal (`main`) korunsun:** Settings → Branches → **Add branch ruleset** → `main` için

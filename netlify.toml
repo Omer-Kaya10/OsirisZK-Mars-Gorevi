@@ -15,3 +15,10 @@
   [headers.values]
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
+
+# 3B oyunun canlı hava verisi (Perseverance MEDA): tarayıcının CORS sınırını aşmak için vekil adres.
+# GitHub Pages'te bu yoktur; oyun orada yayımlanmış MEDA aralığıyla (çevrimdışı model) çalışır.
+[[redirects]]
+  from = "/nasa/mars/*"
+  to = "https://mars.nasa.gov/:splat"
+  status = 200

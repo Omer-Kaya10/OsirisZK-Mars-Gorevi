@@ -28,6 +28,7 @@ Fizik, enerji, görev ve kayıt kuralları **tek bir dosyada**: `oyun/mars_core.
 index.html            web oyununun sayfası
 web/                  web arayüzü (oyun.js, dil.js, stil.css) ve Python köprüsü (kopru.py, ceviri.py)
 oyun/                 masaüstü oyunu ve ORTAK oyun motoru (mars_core.py, kamera.py) + testler
+3b/                   3B web oyunu (WebGL 2): gerçekçi fizik, canlı MEDA verisi, ML + DL; testler 3b/testler/
 modeller/             gezgin ve drone mimari çizimleri, modeller.json, modeller sayfası
 belgeler/             Ingenuity karşılaştırma belgeleri, ekran görüntüleri
 .github/workflows/    her yüklemede testleri otomatik çalıştırır
@@ -46,7 +47,20 @@ oyun motoru ile çizimlerin aynı kaldığını denetler. Henüz kullanılmayan 
 ```bash
 cd oyun && python -m unittest -v test_eski_uyumluluk test_rover_drone test_modeller
 python -m unittest discover -s web -p "test_*.py"      # depo kökünden
+node --test 3b/testler/sistemler.test.mjs                                # 3B oyun (Node 20+)
 ```
+
+### 3B sürüm (`3b/`) — v3.0
+Aynı görevin gerçek zamanlı 3B sürümü; adresin sonuna `/3b/` ekleyerek açılır. Python oyununa dokunmaz, yanında durur.
+- **Fizik (`3b/sistemler.js`):** momentum teorisiyle rotor gücü (Ingenuity'nin ≈350 W uçuş gücüne kalibre),
+  ρ = p/(R·T), güneş yüksekliği ve toz opaklığıyla panel gücü, sıcaklığa bağlı Li-ion kapasitesi, enerji Wh.
+- **Ölçüler:** `modeller/modeller.json` — 3B oyun da aynı dosyayı okur (tek kaynak).
+- **Canlı veri (`3b/veri.js`):** Perseverance MEDA hava akışı. Akış gecikmeli olabilir; ekranda sol ve tarih yazar.
+  Ulaşılamazsa yayımlanmış MEDA aralığı kullanılır, veri uydurulmaz. (Canlı veri yalnızca Netlify yayınında çalışır.)
+- **Makine öğrenmesi (`3b/yz.js`):** drone uçarken güç tüketimini öğrenir (çevrimiçi RLS) ve her hedeften önce
+  "dönüşe pil yeter mi" kararını verir.
+- **Derin öğrenme:** 8-16-16-3 sinir ağı taranan kayayı sınıflandırır. Eğitim spektrumları **temsilîdir**, ölçülmüş değildir.
+- TR/EN, dokunmatik kumanda, kaydet/yükle, CSV telemetri, kamera arşivi, zaman hızlandırma.
 
 ### v3.1 → v3.2 değişiklikleri
 - Web sürümü (Pyodide) ve Türkçe/English dil seçici; tablet için dokunmatik kumanda.
@@ -72,6 +86,7 @@ platform and swaps batteries, data is uplinked to Earth and the rover returns to
 
 - **Play in the browser:** https://omer-kaya10.github.io/OsirisZK-Mars-Gorevi/ (once GitHub Pages is on) or https://osiris-mars-explorer.netlify.app/gezgin/ (no installation).
   Use the **TR / EN** switch in the top-right corner (or add `?dil=en` to the address).
+- **3D version:** add `/3b/` to the address — real-time WebGL game with momentum-theory rotor power, live Perseverance MEDA weather (Netlify only), an online ML energy model and a small neural-network rock classifier (trained on representative, not measured, spectra).
 - **Play on the desktop:** `oyun/baslat.py` (Python 3.10+). The desktop version is in Turkish.
 - **One game engine:** all rules live in `oyun/mars_core.py`; the web version runs the very same
   Python file in the browser with Pyodide.
