@@ -7,18 +7,46 @@
  *  · Ölçüler: modeller.json (takımın mimari çizimleri v1.0) — değerler tek kaynaktan okunur
  * Eğitim simülasyonudur; gerçek uçuş yazılımı değildir.
  * ========================================================================== */
-import {Renderer,I,T,S,RX,RZ,TR,matmul,clamp,lerp,terrainHeight,transformPoint} from './engine.js';
-import {TARGETS,ENGELLER,GEZGIN_OLCU,buildTerrain,buildEnvironment,buildRover,buildDrone,buildExtra} from './scene.js';
-import {SABIT,varsayilanHava,havaSicakligiC,yogunluk,gunesGucu,gunesYukseklikSin,ROTOR,rotorGucu,maksItki,gerekliDevir,ucMach,
-  pilKapasitesiWh,GEZGIN,tekerlekGucu,ISI,bolmeSicakligi,baglantiKalitesi,firtinaDurumu,tahminiKalanUcusS} from './sistemler.js';
+import {Renderer,I,T,S,RX,RZ,TR,matmul,clamp,lerp,terrainHeight,transformPoint,angleDiff} from './engine.js';
+import {GamepadInput,PAD} from './gamepad.js';
+import {loadTerrainConfig,TERRAIN_CONFIG,materialWeights,fullWeights,dominantClass,setMaterialMap} from './materials.js';
+import {blendSoil} from './terramechanics.js';
+import {buildTerrainTextures,loadManifest} from './textures.js';
+import {TARGETS,ENGELLER,GEZGIN_OLCU,TERRAIN_SPAN,terrainMeshHeight,buildTerrain,buildEnvironment,buildRover,buildDrone,buildExtra} from './scene.js';
+import {SABIT,medaHava,basincPa,zeminRuzgari,havaSicakligiC,yogunluk,gunesGucu,gunesYukseklikSin,ROTOR,rotorGucu,maksItki,gerekliDevir,ucMach,
+  pilKapasitesiWh,GEZGIN,zeminSurusu,ISI,bolmeSicakligi,baglantiKalitesi,firtinaDurumu,tahminiKalanUcusS} from './sistemler.js';
 import {EnerjiModeli,siniflandiriciHazirla,spektrumUret,rastgele,SINIFLAR} from './yz.js';
 import {canliHavaAl} from './veri.js';
+import {loadMeda,loadForecast,MedaPanel,sample,flightStatus,windVector,clockText,meanOf} from './meda.js';
+import {DLPanel} from './dlpanel.js';
 import {t,dilAyarla,baslangicDili,sayfayiCevir,aktifDil} from './dil.js';
 
-const SURUM='3.0';
+const SURUM='3.2';
+// v2.4: üç grafik kalitesi (doku boyutu, arazi ağı, kaya sayısı). Seçim hatırlanır; ?kalite=low|medium|high
+const QUALITY={
+  low:{grid:110,tex:256,macro:256,pixelRatio:1.0,boulders:220,rockLevel:0,dustMax:50,trackMax:500,level:0,aniso:1,bump:0},
+  medium:{grid:166,tex:512,macro:512,pixelRatio:1.45,boulders:490,rockLevel:1,dustMax:120,trackMax:1500,level:1,aniso:4,bump:.035},
+  high:{grid:256,tex:1024,macro:1024,pixelRatio:2.0,boulders:900,rockLevel:1,dustMax:220,trackMax:2500,level:2,aniso:8,bump:.06}};
+const KALITE_ANAHTAR='osiriszk.quality';
+function kaliteOku(){try{const q=new URLSearchParams(location.search).get('kalite')||localStorage.getItem(KALITE_ANAHTAR);return QUALITY[q]?q:'medium';}catch{return'medium';}}
+let kalite=kaliteOku(),kaliteMesgul=false;
+const dunya={matTex:null,macroTex:null,macroAmt:.45,manifest:null,dokuKaynak:'procedural'};
+const TEKER_GENISLIK=.08;
 const $=id=>document.getElementById(id);
 const canvas=$('glcanvas');
 const keys=new Set();
+// v2.3: Xbox / standart oyun kumandası; klavye ile tek bir analog girişte (−1…1) birleşir.
+const gamepad=new GamepadInput({onConnect:()=>{addLog(t('l.kumandaBagli'),'success');notify(t('m.kumandaBagli'));},onDisconnect:()=>addLog(t('l.kumandaAyrildi'),'warn')});
+const eksen=(arti,eksi)=>(arti.some(k=>keys.has(k))?1:0)-(eksi.some(k=>keys.has(k))?1:0);
+function girdi(){const g=gamepad.connected?gamepad:null,c=v=>clamp(v,-1,1);
+  return{drone:{fwd:c(eksen(['w','arrowup'],['s','arrowdown'])-(g?g.ly:0)),strafe:c(eksen(['d'],['a'])+(g?g.lx:0)),
+      rise:c(eksen([' '],['shift'])+(g?g.rt-g.lt:0)),turn:c(eksen(['arrowleft','q'],['arrowright','e'])-(g?g.rx:0))},
+    rover:{gaz:c(eksen(['w','arrowup'],['s','arrowdown'])+(g?g.rt-g.lt-g.ly:0)),direksiyon:c(eksen(['d','arrowright'],['a','arrowleft'])+(g?g.lx:0)),
+      fren:keys.has(' ')||!!g?.held(PAD.B)}};}
+const efekt={toz:[],izler:[],izSon:null,izKirli:false,izSaat:0,izSira:0,tozSaat:0};
+const IZ_A=[.21,.095,.065],IZ_B=[.30,.14,.095];
+const KAMERA_MODLARI=['cinematic','drone','rover','top'];
+const pusula=yaw=>((-yaw*180/Math.PI)%360+360)%360;
 
 // ------------------------------------------------------------- yapılandırma
 /** modeller.json'dan okunan değerler; dosya açılamazsa (file://) aynı değerlerle devam edilir. */
@@ -37,8 +65,8 @@ const ML_ANAHTAR='osiriszk3d:ml';
 // ------------------------------------------------------------- durum
 function yeniDurum(){return{
   surum:SURUM,time:0,running:true,warp:1,selected:'drone',cameraMode:'cinematic',auto:false,phase:'ready',targetIndex:0,phaseTime:0,
-  hava:state?.hava??varsayilanHava(),tohum:7,
-  rover:{x:0,z:16,yaw:0,speed:0,wheelAngle:0,enerjiWh:900,bolmeC:5,isiyor:false,uplink:false,uyariT:-99,pitch:0,roll:0},
+  hava:state?.hava??medaHava(),tohum:7,
+  rover:{x:0,z:16,yaw:0,speed:0,tekerHizi:0,kayma:0,batmaM:0,cekisN:0,saplandi:false,saplanmaS:0,wheelAngle:0,enerjiWh:900,bolmeC:5,isiyor:false,uplink:false,uyariT:-99,pitch:0,roll:0},
   drone:{x:0,y:0,z:0,yaw:0,vx:0,vy:0,vz:0,enerjiWh:.6*DRONE_PIL_WH,pilC:5,docked:true,landed:false,rotorAngle:0,
     tw:0,gucW:0,devir:0,ucusS:0,dayaniklilik:100,dustu:false,carpmaT:-99,sicakUyari:false,baglanti:100,kopukS:0},
   raf:[{wh:44.4},{wh:44.4},{wh:20}],degisim:null,
@@ -46,16 +74,30 @@ function yeniDurum(){return{
   paketler:{drone:[],rover:[],gonderilen:[]},paketNo:0,fotoNo:0,
   firtina:false,sonuc:null,sonKarar:null,events:[],
   gucGecmis:[],telemetri:[],telT:0,mlT:0,
-  camera:{yaw:.57,pitch:.37,distance:9,focus:[0,1,15],eye:[6,5,22],dragging:false},
+  camera:{yaw:.57,pitch:.37,distance:9,focus:[0,1,15],eye:[6,5,22],dragging:false,heading:0},
 };}
 let state=null;state=yeniDurum();
-let renderer,assets,model=new EnerjiModeli(),clf=null,fotolar=[],fotoIste=null;
+let renderer,assets={},model=new EnerjiModeli(),clf=null,fotolar=[],fotoIste=null;
 let toastTimer=0,uiTimer=0,frameCount=0,fpsTime=0,lastFrame=0;
 
 // ------------------------------------------------------------- yardımcılar
-const lst=()=>(LST0+state.time*24/SABIT.SOL_S)%24;
-const ortamC=()=>havaSicakligiC(lst(),state.hava);
-const rho=()=>yogunluk(state.hava.basincPa,ortamC());
+let saatKayma=0;                     // MEDA panelindeki saat kaydırıcısıyla ayarlanır (saat)
+const lst=()=>((LST0+saatKayma+state.time*24/SABIT.SOL_S)%24+24)%24;
+/* v3.3: MEDA ölçümü (sol 105–110, 10 dk medyan). Canlı veri gelmediyse oyunun havası bu ölçümlerden okunur;
+ * ölçüm dosyası yoksa sistemler.js'teki harmonik model (MEDA_MODEL) yedektir. */
+let dlPanel=null,medaPanel=null,olcumDk=-1,olcumSol=null,olcumDeger=null;
+function olcum(){
+  if(!medaPanel?.data||state.hava.kaynak==='canli')return null;
+  const dk=Math.floor(lst()*60);
+  if(dk!==olcumDk||medaPanel.sol!==olcumSol){olcumDk=dk;olcumSol=medaPanel.sol;olcumDeger=sample(medaPanel.data,medaPanel.sol,dk);}
+  return olcumDeger;
+}
+const ucusDurumu=()=>{const o=olcum();return o?flightStatus(o):null;};
+const ortamC=()=>olcum()?.t??havaSicakligiC(lst(),state.hava);
+const basinc=()=>olcum()?.p??basincPa(lst(),state.hava);
+const rho=()=>yogunluk(basinc(),ortamC());
+/** Rüzgâr: MEDA modelinin o saatteki ortalaması; fırtınada fırtına rüzgârı (hangisi büyükse). */
+const ruzgar=f=>Math.max(olcum()?.ws??zeminRuzgari(lst(),state.hava),f.aktif?f.ruzgarMs:0);
 const firtina=()=>firtinaDurumu(state.time,state.tohum);
 const droneKap=()=>pilKapasitesiWh(state.drone.pilC,DRONE_PIL_WH);
 const dronePct=()=>100*state.drone.enerjiWh/DRONE_PIL_WH;
@@ -77,6 +119,13 @@ function addLog(message,type='info'){
 function renderLog(){$('eventLog').innerHTML=state.events.slice(0,14).map(e=>`<div class="log-line ${e.type}"><b>${e.stamp}</b>${escapeHTML(e.message)}</div>`).join('');}
 function notify(message){const el=$('toast');el.textContent=message;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),3200);}
 
+const _w4=new Float32Array(4);
+/** Altı tekerin altındaki zemin (5 sınıfın karışımı) ve gezginin ortalama karışımı. */
+function tekerZeminleri(r){const c=Math.cos(r.yaw),s=Math.sin(r.yaw),karisim=[0,0,0,0,0],cls=TERRAIN_CONFIG.classes;
+  const zeminler=assets.rover.wheelLocs.map(([lx,,lz])=>{const w5=fullWeights(materialWeights(r.x+lx*c+lz*s,r.z-lx*s+lz*c,_w4));for(let i=0;i<5;i++)karisim[i]+=w5[i]/6;return blendSoil(w5,cls);});
+  return{zeminler,karisim};}
+const zeminAdi=i=>t('zemin.'+TERRAIN_CONFIG.classes[i].key);
+const zeminNoktasi=(x,z)=>blendSoil(fullWeights(materialWeights(x,z,_w4)),TERRAIN_CONFIG.classes);
 /** Gezgin gövdesinin dünya matrisi: arazi eğimine göre yunuslama ve yalpa. */
 function roverMatrix(){const r=state.rover;return matmul(matmul(TR(r.x,terrainHeight(r.x,r.z),r.z,r.yaw),RX(r.pitch)),RZ(r.roll));}
 function roverEgim(){const r=state.rover,[fx,fz]=ileri(r.yaw),[sx,sz]=sag(r.yaw),L=GEZGIN_OLCU.aks,W=GEZGIN_OLCU.iz/2;
@@ -101,8 +150,8 @@ function setCamera(which){
   $('viewModeLabel').textContent=t('kamera.etiket.'+which);
   const c=state.camera;
   if(which==='top'){c.pitch=1.46;c.distance=48;}
-  else if(which==='drone'){c.pitch=.30;c.distance=5;c.yaw=.57;}
-  else if(which==='rover'){c.pitch=.30;c.distance=6.5;c.yaw=.47;}
+  else if(which==='drone'){c.pitch=.30;c.distance=5;c.yaw=.5;c.heading=state.drone.yaw;}
+  else if(which==='rover'){c.pitch=.30;c.distance=6.5;c.yaw=.42;c.heading=state.rover.yaw;}
   else{c.pitch=.33;c.distance=9;c.yaw=.57;}
 }
 
@@ -116,16 +165,19 @@ function kalkisEngeli(){
   const dev=gerekliDevir({rho:rho()});
   if(dev>ROTOR.DEVIR_MAKS)return t('m.havaSeyrek',{d:Math.round(dev)});
   const f=firtina();if(f.aktif&&f.siddet>.3)return t('m.firtinaKalkis',{r:f1(f.ruzgarMs)});
+  const u=ucusDurumu();if(u?.level==='no')return t('m.medaYasak',{r:u.reasons.join(', ')});
   return null;
 }
 function takeoff(){
-  const neden=kalkisEngeli();if(neden){notify(neden);return false;}
+  const neden=kalkisEngeli();if(neden){notify(neden);if(neden===t('m.medaYasak',{r:ucusDurumu()?.reasons.join(', ')}))addLog(`${neden} • ${clockText(lst()*60)} LMST`,'warn');return false;}
+  {const u=ucusDurumu();if(u?.level==='marginal')addLog(t('l.medaMarjinal',{r:u.reasons.join(', ')}),'warn');}
   const d=state.drone;
   if(d.docked){const p=padPos();d.x=p[0];d.y=p[1]+.03;d.z=p[2];}
   else d.y+=.03;
   d.docked=false;d.landed=false;d.vx=d.vy=d.vz=0;d.ucusS=0;d.sicakUyari=false;
   if(state.warp!==1)setWarp(1);
   selectVehicle('drone',true);
+  gamepad.rumble(.3,.65,380);
   addLog(t('l.kalkis',{d:Math.round(gerekliDevir({rho:rho()}))}),'success');notify(t('m.kalkis'));return true;
 }
 function dock(oto=false){
@@ -135,6 +187,7 @@ function dock(oto=false){
   if(!oto&&(hd>.5||vd<-.05||vd>.4||Math.hypot(d.vx,d.vy,d.vz)>.6)){notify(t('m.kenetUzak'));return false;}
   d.docked=true;d.landed=false;d.vx=d.vy=d.vz=0;[d.x,d.y,d.z]=p;d.yaw=state.rover.yaw;
   const n=state.paketler.drone.length;state.paketler.rover.push(...state.paketler.drone);state.paketler.drone=[];
+  gamepad.rumble(.75,.3,200);
   addLog(t('l.kenetlendi'),'success');notify(t('m.kenetlendi',{n}));
   try{localStorage.setItem(ML_ANAHTAR,JSON.stringify(model.durum()));}catch{}
   return true;
@@ -151,6 +204,7 @@ function swapBattery(){
 function degisimBitir(){
   const d=state.drone,{idx}=state.degisim,eski=d.enerjiWh,yeni=state.raf[idx].wh;
   d.enerjiWh=yeni;state.raf[idx].wh=eski;state.degisim=null;
+  gamepad.rumble(.2,.5,160);
   addLog(t('l.degisimBitti',{a:f1(eski),b:f1(yeni)}),'success');
 }
 function toggleUplink(){
@@ -182,7 +236,9 @@ function collect(i,yontem){
   const g=gozlemle(i,yontem);state.collected[i]=true;state.siniflar[i]=g;
   paketEkle(yontem,yontem==='drone'?'tarama':'yuzey',hedefAdi(i));
   const v={label:hedefAdi(i),yontem:t('yontem.'+(yontem==='drone'?'drone':'gezgin')),sinif:t('sinif.'+g.sinif),guven:Math.round(g.guven*100)};
+  gamepad.rumble(.25,.85,260);
   addLog(t('l.tarandi',v),g.dogru?'success':'warn');notify(t('m.tarandi',v));
+  dlPanel?.classifyTarget(i,hedefAdi(i));
 }
 function scan(){
   if(state.sonuc){notify(t('m.bitti'));return;}
@@ -255,6 +311,7 @@ function autoVelocity(dt){
   const kap=droneKap();
   if(d.enerjiWh<.18*kap)donuseGec('l.kritik');
   if(firtina().aktif&&firtina().siddet>.3&&!['return','land'].includes(state.phase))donuseGec('l.firtinaDonus');
+  if(ucusDurumu()?.level==='no'&&!['return','land'].includes(state.phase))donuseGec('l.medaDonus');
   let dest=null,hiz=SEYIR,dikeyMaks=TIRMANMA;
   const zemin=terrainHeight(d.x,d.z);
   if(state.phase==='takeoff'){
@@ -290,25 +347,31 @@ function adim(dt){
   if(f.aktif!==state.firtina){state.firtina=f.aktif;addLog(f.aktif?t('l.firtina',{r:f1(f.ruzgarMs)}):t('l.firtinaBitti'),f.aktif?'warn':'success');}
 
   // --- gezgin hareketi (en fazla 0,10 m/s, 0,30 m engel, 30° eğim)
-  const fwd=(pressed('w')||pressed('arrowup')?1:0)-(pressed('s')||pressed('arrowdown')?1:0);
-  const don=(pressed('d')||pressed('arrowright')?1:0)-(pressed('a')||pressed('arrowleft')?1:0);
+  const gg=girdi().rover,fwd=gg.fren?0:gg.gaz,don=gg.direksiyon;   // SPACE / B: fren
   let tekerW=0;
   if(state.selected==='rover'&&r.enerjiWh>5&&!state.sonuc){
-    r.speed=lerp(r.speed,fwd*CFG.gezginHiz,clamp(dt*2,0,1));
-    if(Math.abs(r.speed)>.002||don){
+    // motorlar teker çevre hızını sürer; gerçek hız zemindeki kaymaya göre düşer (terramekanik, v2.4)
+    r.tekerHizi=lerp(r.tekerHizi,fwd*CFG.gezginHiz,clamp(dt*(gg.fren?8:2),0,1));
+    if(Math.abs(r.tekerHizi)>.002||don){
       r.yaw-=don*dt*.25;
-      const [fx,fz]=ileri(r.yaw),nx=clamp(r.x+fx*r.speed*dt,-93,93),nz=clamp(r.z+fz*r.speed*dt,-93,93);
+      const [fx,fz]=ileri(r.yaw),egimF=Math.atan2(terrainHeight(r.x+fx*.7,r.z+fz*.7)-terrainHeight(r.x-fx*.7,r.z-fz*.7),1.4);
+      const zs=zeminSurusu({zeminler:tekerZeminleri(r).zeminler,kutleKg:CFG.gezginKg,tekerHizi:r.tekerHizi,egimRad:egimF,capM:GEZGIN_OLCU.tekerYaricap*2,genislikM:TEKER_GENISLIK});
+      r.speed=zs.hiz;r.kayma=zs.kayma;r.batmaM=zs.batmaM;r.cekisN=zs.cekisN;
+      if(zs.saplandi&&Math.abs(fwd)>.3){r.saplanmaS+=dt;if(r.saplanmaS>3&&!r.saplandi){r.saplandi=true;gamepad.rumble(.6,.2,300);
+        addLog(t('l.saplandi',{zemin:zeminAdi(dominantClass(tekerZeminleri(r).karisim))}),'warn');notify(t('m.saplandi'));}}
+      else{r.saplanmaS=0;if(Math.abs(r.speed)>.01)r.saplandi=false;}
+      const nx=clamp(r.x+fx*r.speed*dt,-93,93),nz=clamp(r.z+fz*r.speed*dt,-93,93);
       const engel=ENGELLER.find(e=>e.h>CFG.engelM&&Math.hypot(nx-e.x,nz-e.z)<e.r+.8&&Math.hypot(nx-e.x,nz-e.z)<Math.hypot(r.x-e.x,r.z-e.z));
-      const isaret=Math.sign(r.speed)||1,egim=Math.atan2(terrainHeight(nx+fx*.7*isaret,nz+fz*.7*isaret)-terrainHeight(nx-fx*.7*isaret,nz-fz*.7*isaret),1.4);
+      const isaret=Math.sign(r.tekerHizi)||1,egim=Math.atan2(terrainHeight(nx+fx*.7*isaret,nz+fz*.7*isaret)-terrainHeight(nx-fx*.7*isaret,nz-fz*.7*isaret),1.4);
       const egimDeg=Math.abs(egim)*180/Math.PI;
       if(engel||egimDeg>CFG.egimDeg){
-        r.speed=0;if(state.time-r.uyariT>6){r.uyariT=state.time;notify(engel?t('m.engel',{h:f2(engel.h)}):t('m.egim',{e:Math.round(egimDeg)}));}
+        r.speed=0;r.tekerHizi=0;if(state.time-r.uyariT>6){r.uyariT=state.time;notify(engel?t('m.engel',{h:f2(engel.h)}):t('m.egim',{e:Math.round(egimDeg)}));}
       }else{
-        r.x=nx;r.z=nz;r.wheelAngle+=r.speed*dt/GEZGIN_OLCU.tekerYaricap;
-        tekerW=tekerlekGucu({kutleKg:CFG.gezginKg,hizMs:r.speed,egimRad:egim*isaret});
+        r.x=nx;r.z=nz;r.wheelAngle+=r.tekerHizi*dt/GEZGIN_OLCU.tekerYaricap;
+        tekerW=Math.max(0,zs.direncN)*Math.abs(r.tekerHizi)/GEZGIN.VERIM;     // kayma kaybı dahil: iş teker hızında yapılır
       }
-    }
-  }else r.speed=lerp(r.speed,0,Math.min(1,dt*4));
+    }else{r.speed=0;r.kayma=0;}
+  }else{r.tekerHizi=lerp(r.tekerHizi,0,Math.min(1,dt*4));r.speed=0;r.kayma=0;}
   roverEgim();
 
   // --- ısı bölmesi (termostatlı ısıtıcı)
@@ -372,15 +435,16 @@ function droneUcus(dt,ro,hava,f){
   let istek=[0,0,0];
   if(state.auto){istek=autoVelocity(dt);if(d.docked)return;}
   else if(state.selected==='drone'){
-    d.yaw-=((pressed('e')?1:0)-(pressed('q')?1:0))*dt*.9;
-    const fw=(pressed('w')||pressed('arrowup')?1:0)-(pressed('s')||pressed('arrowdown')?1:0);
-    const st=(pressed('d')||pressed('arrowright')?1:0)-(pressed('a')||pressed('arrowleft')?1:0);
-    const [fx,fz]=ileri(d.yaw),[sx,sz]=sag(d.yaw),rise=(pressed(' ')?1:0)-(pressed('shift')?1:0);
+    // v2.3: W/S burnun yönünde, A/D yana kayma, ←/→ (Q/E) kendi ekseninde dönüş; kumandada analog
+    const gd=girdi().drone;d.yaw+=gd.turn*dt*.9;
+    const fw=gd.fwd,st=gd.strafe,rise=gd.rise,[fx,fz]=ileri(d.yaw),[sx,sz]=sag(d.yaw);
     istek=[(fx*fw+sx*st)*SEYIR,rise*1.5,(fz*fw+sz*st)*SEYIR];
   }
   // fırtına rüzgârı: sabit yönlü sürüklenme (VARSAYIM: rüzgârın %15'i)
   const suruklenme=f.aktif?f.ruzgarMs*.15:0;
-  const ax=(istek[0]+suruklenme*.8-d.vx)*Math.min(1,dt*3.2),az=(istek[2]+suruklenme*.6-d.vz)*Math.min(1,dt*3.2);
+  // v3.3: MEDA'da ölçülen rüzgâr (hız + yön) de hafif sürükler (VARSAYIM: rüzgârın %4,5'i; kuzey = −z)
+  const o=olcum(),[rx,rz]=o?windVector((o.ws??0)*.045,o.wd):[0,0];
+  const ax=(istek[0]+suruklenme*.8+rx-d.vx)*Math.min(1,dt*3.2),az=(istek[2]+suruklenme*.6+rz-d.vz)*Math.min(1,dt*3.2);
   let ay=(istek[1]-d.vy)*Math.min(1,dt*2.8)/Math.max(dt,1e-4);
   // itki sınırı: T_maks ∝ ρΩ² (2700 dev/dk); itki-ağırlık oranı bunu aşamaz
   const Tmaks=maksItki({kutleKg:CFG.droneKg,rho:ro}),ayMaks=Tmaks/CFG.droneKg-SABIT.g;
@@ -398,7 +462,7 @@ function droneUcus(dt,ro,hava,f){
   // makine öğrenmesi: ölçülen güç ile modeli 5 Hz'de güncelle
   state.mlT+=dt;
   if(state.mlT>=.2&&P>0){
-    state.mlT=0;const kosul={yatayHiz:yh,dikeyHiz:d.vy,rho:ro,ruzgar:f.ruzgarMs};
+    state.mlT=0;const kosul={yatayHiz:yh,dikeyHiz:d.vy,rho:ro,ruzgar:ruzgar(f)};
     const tahmin=model.tahmin(kosul);model.ogren(kosul,P);
     state.gucGecmis.push({t:state.time,P,tahmin});if(state.gucGecmis.length>150)state.gucGecmis.shift();
   }
@@ -425,10 +489,10 @@ function droneUcus(dt,ro,hava,f){
     const carpma=-d.vy;d.y=zemin;d.vx=d.vy=d.vz=0;
     if(d.enerjiWh<=0){d.dustu=true;state.auto=false;addLog(t('l.pilBitti'),'warn');return;}
     if(carpma>1)sertInis(carpma);
-    if(carpma>.05||(!state.auto&&!keys.has(' '))){d.landed=true;state.auto=false;setAutoPhase('manual');addLog(t('l.indi'),'warn');}
+    if(carpma>.05||(!state.auto&&girdi().drone.rise<=.1)){d.landed=true;state.auto=false;setAutoPhase('manual');addLog(t('l.indi'),'warn');}
   }
 }
-function sertInis(v){const h=Math.round((v-1)*40);state.drone.dayaniklilik-=h;addLog(t('l.sertInis',{v:f2(v),h}),'warn');}
+function sertInis(v){gamepad.rumble(1,1,300);const h=Math.round((v-1)*40);state.drone.dayaniklilik-=h;addLog(t('l.sertInis',{v:f2(v),h}),'warn');}
 
 function sonucDenetle(){
   if(state.sonuc)return;
@@ -444,7 +508,7 @@ function sonucDenetle(){
 }
 function telemetriKaydet(saat,hava,ro,f){
   const d=state.drone,r=state.rover;
-  state.telemetri.push([state.time.toFixed(0),saatYaz(saat),hava.toFixed(1),ro.toFixed(4),f.aktif?1:0,f.ruzgarMs.toFixed(1),
+  state.telemetri.push([state.time.toFixed(0),saatYaz(saat),hava.toFixed(1),ro.toFixed(4),f.aktif?1:0,ruzgar(f).toFixed(1),
     d.docked?'kenetli':d.landed?'yerde':d.dustu?'dustu':'ucus',d.x.toFixed(2),d.y.toFixed(2),d.z.toFixed(2),agl().toFixed(2),
     Math.hypot(d.vx,d.vz).toFixed(2),d.vy.toFixed(2),d.gucW.toFixed(1),Math.round(d.devir),d.enerjiWh.toFixed(2),d.pilC.toFixed(1),d.baglanti,
     r.x.toFixed(2),r.z.toFixed(2),r.enerjiWh.toFixed(1),(r.gunesW||0).toFixed(1),(r.yukW||0).toFixed(1),r.bolmeC.toFixed(1),state.phase]);
@@ -466,6 +530,61 @@ function updatePhysics(gercekDt){
   for(let i=0;i<n;i++)adim(sim/n);
 }
 
+// ------------------------------------------------------------- görsel efektler (v2.3): rotor tozu ve tekerlek izi
+function tozEkle(x,z,vx,vy,vz,boy,omur){if(efekt.toz.length>QUALITY[kalite].dustMax)efekt.toz.shift();efekt.toz.push({x,y:terrainMeshHeight(x,z)+.05,z,vx,vy,vz,boy,yas:0,omur});}
+function izSeritleri(r){const c=Math.cos(r.yaw),s=Math.sin(r.yaw),pt=(lx,lz)=>[r.x+lx*c+lz*s,r.z-lx*s+lz*c],x=GEZGIN_OLCU.iz/2;return[pt(-x,GEZGIN_OLCU.aks),pt(x,GEZGIN_OLCU.aks)];}
+function izBirak(r){
+  const [L,R]=izSeritleri(r),son=efekt.izSon;
+  if(!son){efekt.izSon={L,R};return;}
+  const yol=Math.max(Math.hypot(L[0]-son.L[0],L[1]-son.L[1]),Math.hypot(R[0]-son.R[0],R[1]-son.R[1]));
+  if(yol<.12)return;
+  if(yol<2&&zeminNoktasi(r.x,r.z).track>.05){const col=(efekt.izSira++&1)?IZ_A:IZ_B,data=new Float32Array(108);let o=0;
+    const koy=(x,z)=>{data.set([x,terrainMeshHeight(x,z)+.02,z,0,1,0,col[0],col[1],col[2]],o);o+=9;};
+    for(const [a,b] of [[son.L,L],[son.R,R]]){const dx=b[0]-a[0],dz=b[1]-a[1],l=Math.hypot(dx,dz)||1,nx=-dz/l*.045,nz=dx/l*.045;
+      koy(a[0]+nx,a[1]+nz);koy(b[0]+nx,b[1]+nz);koy(b[0]-nx,b[1]-nz);koy(a[0]+nx,a[1]+nz);koy(b[0]-nx,b[1]-nz);koy(a[0]-nx,a[1]-nz);}
+    efekt.izler.push(data);if(efekt.izler.length>QUALITY[kalite].trackMax)efekt.izler.shift();efekt.izKirli=true;}
+  efekt.izSon={L,R};
+}
+function efektleriTemizle(){efekt.toz.length=0;efekt.izler.length=0;efekt.izSon=null;efekt.izKirli=true;}
+function efektleriGuncelle(dt){
+  const d=state.drone;
+  if(state.running){
+    izBirak(state.rover);
+    const a=agl();   // alçak uçuşta rotor akımı yerden toz kaldırır
+    if(!d.docked&&!d.landed&&!d.dustu&&a<2.5){efekt.tozSaat+=dt*(2.5-a)*6*zeminNoktasi(d.x,d.z).dust;
+      while(efekt.tozSaat>=1){efekt.tozSaat-=1;const w=Math.random()*Math.PI*2,rad=.3+Math.random()*.5,ox=Math.cos(w),oz=Math.sin(w);
+        tozEkle(d.x+ox*rad,d.z+oz*rad,ox*(.9+Math.random()*.7),.06+Math.random()*.18,oz*(.9+Math.random()*.7),.09+Math.random()*.07,1+Math.random()*.6);}}
+    for(const p of efekt.toz){p.yas+=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.z+=p.vz*dt;const sur=Math.max(0,1-dt*1.6);p.vx*=sur;p.vz*=sur;p.vy=p.vy*sur-.05*dt;}
+    efekt.toz=efekt.toz.filter(p=>p.yas<p.omur);
+  }
+  efekt.izSaat+=dt;
+  if(efekt.izKirli&&efekt.izSaat>.15){const hepsi=new Float32Array(efekt.izler.length*108);efekt.izler.forEach((seg,i)=>hepsi.set(seg,i*108));renderer.update(assets.extra.tracks,hepsi);efekt.izKirli=false;efekt.izSaat=0;}
+}
+// ------------------------------------------------------------- oyun kumandası (v2.3)
+let rtOnceki=0;
+function kumanda(dt){
+  if(!gamepad.poll())return;
+  const g=gamepad,c=state.camera,help=$('helpOverlay'),gal=$('galleryOverlay');
+  if(!help.hidden||!gal.hidden){if(g.pressed(PAD.A)||g.pressed(PAD.B)||g.pressed(PAD.VIEW)){help.hidden=true;gal.hidden=true;}return;}
+  if(g.pressed(PAD.VIEW)){help.hidden=false;return;}
+  if(g.pressed(PAD.MENU))togglePause();
+  const yerde=state.drone.docked||state.drone.landed;
+  if(g.pressed(PAD.A)){if(yerde)takeoff();else dock();}
+  if(g.rt>.5&&rtOnceki<=.5&&state.selected==='drone'&&yerde)takeoff();
+  rtOnceki=g.rt;
+  if(g.pressed(PAD.X))scan();
+  if(g.pressed(PAD.Y))selectVehicle(state.selected==='drone'?'rover':'drone');
+  if(g.pressed(PAD.LB))swapBattery();
+  if(g.pressed(PAD.UP))startMission();
+  if(g.pressed(PAD.DOWN))toggleUplink();
+  if(g.pressed(PAD.LEFT)||g.pressed(PAD.RIGHT)){const i=KAMERA_MODLARI.indexOf(state.cameraMode);setCamera(KAMERA_MODLARI[(i+(g.pressed(PAD.RIGHT)?1:3))%4]);}
+  if(g.pressed(PAD.RS)){c.zoomStep=((c.zoomStep||0)+1)%3;c.distance=clamp(c.distance*[1/1.75,.55,1.75/.55][c.zoomStep],1.8,88);}
+  if(state.selected==='rover'&&g.rx)c.yaw-=g.rx*dt*2.2;      // sağ çubuk: gezginde kamerayı çevirir
+  if(g.ry)c.pitch=clamp(c.pitch+g.ry*dt*1.1,.08,1.53);
+  if(state.auto&&state.selected==='drone'&&(Math.hypot(g.lx,g.ly)>.35||Math.abs(g.rx)>.35||g.rt>.3||g.lt>.3)){
+    state.auto=false;setAutoPhase('manual');addLog(t('l.manuel'),'warn');notify(t('m.manuel'));}
+}
+
 // ------------------------------------------------------------- çizim
 function cameraFrame(dt){
   const c=state.camera,d=state.drone,r=state.rover,ry=terrainHeight(r.x,r.z);
@@ -475,7 +594,10 @@ function cameraFrame(dt){
   else if(state.cameraMode==='top')target=[(d.x+r.x)*.5,1,(d.z+r.z)*.5];
   else{const p=state.selected==='drone'?[d.x,d.y+.2,d.z]:[r.x,ry+.5,r.z];target=p;}
   const blend=clamp(dt*2.8,0,1);c.focus=c.focus.map((v,i)=>lerp(v,target[i],blend));
-  const p=c.pitch,y=c.yaw,dist=c.distance;
+  // v2.3 takip kamerası: drone/gezgin kamerası aracın arkasına gecikmeli döner (c.yaw burada sapma açısıdır)
+  const takip=state.cameraMode==='drone'?d.yaw:state.cameraMode==='rover'?r.yaw:null;
+  if(takip!==null)c.heading+=angleDiff(takip,c.heading)*clamp(dt*1.7,0,1);
+  const p=c.pitch,y=takip!==null?c.heading+c.yaw:c.yaw,dist=c.distance;
   const dest=[c.focus[0]+Math.sin(y)*Math.cos(p)*dist,c.focus[1]+Math.sin(p)*dist,c.focus[2]+Math.cos(y)*Math.cos(p)*dist];
   c.eye=c.eye.map((v,i)=>lerp(v,dest[i],Math.min(1,dt*3.1)));
   c.eye[1]=Math.max(c.eye[1],terrainHeight(c.eye[0],c.eye[2])+.6);
@@ -486,7 +608,9 @@ function drawScene(dt){
   const mu=gunesYukseklikSin(lst(),state.hava.ls);
   renderer.evening=clamp((.3-mu)/.3,0,1)*.82;
   renderer.begin(eye,target,state.time);
-  renderer.draw(assets.terrain,I());renderer.draw(assets.environment.scenery,I());renderer.draw(assets.environment.route,I(),.56,.14);
+  renderer.drawTerrain(assets.terrain,{matTex:dunya.matTex,macroTex:dunya.macroTex,tiles:TERRAIN_CONFIG.classes.map(c=>c.tile_m),level:QUALITY[kalite].level,mapHalf:TERRAIN_SPAN/2,macroAmt:dunya.macroAmt,bump:QUALITY[kalite].bump});
+  renderer.draw(assets.environment.scenery,I());renderer.draw(assets.environment.route,I(),.56,.14);
+  renderer.draw(assets.extra.tracks,I(),.62);
   const r=state.rover,d=state.drone,rm=roverMatrix(),ry=terrainHeight(r.x,r.z);
   renderer.draw(assets.drone.shadow,matmul(T(r.x,ry+.03,r.z),S(1.6,1,1.9)),.33);
   renderer.draw(assets.rover.body,rm);
@@ -501,6 +625,7 @@ function drawScene(dt){
   renderer.draw(assets.drone.body,dm);
   renderer.draw(assets.drone.top,matmul(dm,matmul(T(0,.40,0),RYrot(d.rotorAngle))),1,.13);
   renderer.draw(assets.drone.bottom,matmul(dm,matmul(T(0,.33,0),RYrot(-d.rotorAngle*1.05))),1,.06);
+  for(const p of efekt.toz){const k=p.yas/p.omur,boy=p.boy*(1+k*2.4),sol=(1-k)*(k<.12?k/.12:1);renderer.draw(assets.extra.dust,matmul(T(p.x,p.y,p.z),S(boy,boy,boy)),.42*sol,.22);}
   renderer.gl.bindVertexArray(null);
   updateWorldLabels();
 }
@@ -533,6 +658,10 @@ function drawMap(){
   const mk=(p,col,s)=>{const[x,y]=xy(p.x,p.z);ctx.strokeStyle=col;ctx.lineWidth=1;ctx.beginPath();ctx.arc(x,y,s+5,0,Math.PI*2);ctx.stroke();ctx.fillStyle=col;ctx.beginPath();ctx.arc(x,y,s,0,Math.PI*2);ctx.fill();};
   mk(r,'#77d0bf',4.5);mk(d,'#ffc284',3.2);
   ctx.fillStyle='#94adb8';ctx.font='10px Consolas';ctx.fillText(t('harita.olcek'),10,h-9);
+  const o=olcum();if(o&&o.ws!=null&&o.wd!=null){const[ux,uz]=windVector(1,o.wd),cx=w-34,cy=h-30,L=9+Math.min(14,o.ws*1.6);   // akış yönü, kuzey yukarı
+    ctx.strokeStyle='#9fc6e6';ctx.fillStyle='#9fc6e6';ctx.lineWidth=1.6;ctx.beginPath();ctx.moveTo(cx-ux*L,cy-uz*L);ctx.lineTo(cx+ux*L,cy+uz*L);ctx.stroke();
+    const a=Math.atan2(uz,ux);ctx.beginPath();ctx.moveTo(cx+ux*L,cy+uz*L);ctx.lineTo(cx+ux*L-6*Math.cos(a-.45),cy+uz*L-6*Math.sin(a-.45));ctx.lineTo(cx+ux*L-6*Math.cos(a+.45),cy+uz*L-6*Math.sin(a+.45));ctx.fill();
+    ctx.font='9px Consolas';ctx.textAlign='center';ctx.fillText(`${f1(o.ws)} m/s`,cx,h-6);ctx.fillText('N',cx,12);ctx.textAlign='left';}
 }
 /** Rotor gücü: ölçülen (düz) ve çevrimiçi ML modelinin o anki tahmini (kesikli). */
 function drawPowerChart(){
@@ -567,10 +696,19 @@ function updateUI(){
   ]);
   const mach=ucMach(d.devir||gerekliDevir({rho:ro}),CFG.rotorCapM,hava);
   $('atmDetails').innerHTML=kv([
-    [t('ust.saat'),saatYaz(saat)],[t('atm.basinc'),`${Math.round(state.hava.basincPa)} Pa`],[t('atm.sicaklik'),`${f1(hava)} °C`],
-    [t('atm.yogunluk'),`${ro.toFixed(4)} kg/m³`],[t('atm.opaklik'),f2(state.hava.opaklik*f.tozCarpani)],[t('atm.ruzgar'),`${f1(f.ruzgarMs)} m/s${f.aktif?' · '+t('atm.firtina'):''}`,f.aktif?'uyari':''],
-    [t('atm.mach'),f2(mach)],[t('atm.kaynak'),state.hava.kaynak==='canli'?`MEDA sol ${state.hava.sol}`:t('durum.cevrimdisi')],
+    [t('ust.saat'),saatYaz(saat)],[t('atm.basinc'),`${f1(basinc())} Pa`],[t('atm.sicaklik'),`${f1(hava)} °C`],
+    [t('atm.yogunluk'),`${ro.toFixed(4)} kg/m³`],[t('atm.opaklik'),f2(state.hava.opaklik*f.tozCarpani)],[t('atm.ruzgar'),`${f1(ruzgar(f))} m/s${f.aktif?' · '+t('atm.firtina'):''}`,f.aktif?'uyari':''],
+    [t('atm.mach'),f2(mach)],[t('atm.kaynak'),state.hava.kaynak==='canli'?`MEDA sol ${state.hava.sol}`:olcum()?t('durum.medaOlcum',{s:solAdi()}):state.hava.kaynak==='meda-model'?t('durum.medaModel'):t('durum.cevrimdisi')],
   ]);
+  const tz=tekerZeminleri(r),bas=dominantClass(tz.karisim),zm=blendSoil(tz.karisim,TERRAIN_CONFIG.classes);
+  $('soilDetails').innerHTML=kv([
+    [t('zemin.tur'),`${zeminAdi(bas)} ${yuzde(Math.round(tz.karisim[bas]*100))}`],
+    [t('zemin.kayma'),yuzde(Math.round(r.kayma*100)),r.kayma>.6?'uyari':''],[t('zemin.batma'),`${(r.batmaM*1000).toFixed(1)} mm`],
+    [t('zemin.egim'),`${Math.round(Math.abs(r.pitch)*180/Math.PI)}°`],
+    [t('zemin.mekanik'),zm.rigidFrac>.85?`μ ${f2(zm.mu)}`:`c ${f1(zm.c)} kPa · φ ${Math.round(Math.atan(zm.tanPhi)*180/Math.PI)}°`],
+    [t('zemin.cekis'),r.saplandi?t('zemin.saplandi'):`${f1(r.cekisN)} N`,r.saplandi?'uyari':''],
+  ]);
+  $('soilBars').innerHTML=TERRAIN_CONFIG.classes.map((c,i)=>`<span title="${escapeHTML(zeminAdi(i))} ${Math.round(tz.karisim[i]*100)}%" style="flex:${Math.max(.0001,tz.karisim[i]).toFixed(4)};background:rgb(${c.base_color.map(v=>Math.round(Math.min(255,v*290))).join(',')})"></span>`).join('');
   const son=state.gucGecmis.at(-1),k=state.sonKarar,sonG=[...state.siniflar].reverse().find(Boolean);
   $('aiDetails').innerHTML=kv([
     [t('yz.ml'),`${model.ornek} ${t('yz.ornek')} · ${model.hazir?`${t('yz.hata')} ${yuzde((model.hataOrt*100).toFixed(1))}`:t('yz.ogreniyor')}`],
@@ -583,7 +721,8 @@ function updateUI(){
   $('samples').innerHTML=`${String(state.collected.filter(Boolean).length).padStart(2,'0')} <em>/ 03</em>`;
   $('sent').innerHTML=`${String(bilim).padStart(2,'0')} <em>PKT · ${q.drone.length+q.rover.length} ${t('bilim.bekleyen')}</em>`;
   el('missionClock',stamp());el('lstClock',saatYaz(saat));el('flightTime','T+'+stamp());
-  const act=state.selected==='drone'?d:r;el('coordsLabel',`X ${f1(act.x)} / Z ${f1(act.z)}`);
+  $('padBadge').hidden=!gamepad.connected;if(gamepad.connected)$('padAd').textContent=kumandaTuru()==='ps'?'PLAYSTATION':kumandaTuru()==='xbox'?'XBOX':t('kumanda.rozet');
+  const act=state.selected==='drone'?d:r;el('heading',String(Math.round(pusula(act.yaw))%360).padStart(3,'0'));el('coordsLabel',`X ${f1(act.x)} / Z ${f1(act.z)}`);
   const sb=$('stormBanner');sb.hidden=!f.aktif;if(f.aktif)sb.textContent=`${t('atm.firtina')} · ${t('atm.ruzgar')} ${f1(f.ruzgarMs)} m/s · τ ${f2(state.hava.opaklik*f.tozCarpani)}`;
   const islem=state.sonuc==='basarisiz'?t('faz.failed'):state.sonuc==='basari'?t('faz.completed'):state.degisim?t('faz.degisim'):d.docked?t('faz.kenetli'):d.landed?t('faz.yerde'):state.auto?t('faz.'+state.phase):t('faz.manual');
   el('operationText',islem);
@@ -597,7 +736,8 @@ function updateUI(){
     const active=state.auto&&((i===0&&state.phase==='takeoff')||(i===state.targetIndex+1&&['travel','scan'].includes(state.phase))||(i===4&&['return','land'].includes(state.phase)));
     return `<div class="step ${done?'done':active?'active':''}"><b>${i===4?'↵':i===0?'↑':i}</b><span>${escapeHTML(label)}</span></div>`;}).join('');
   el('missionDescription',state.sonuc==='basari'?t('aciklama.bitti'):state.auto?t('aciklama.otonom'):t('aciklama.hazir',{n:state.collected.filter(Boolean).length,p:q.drone.length+q.rover.length}));
-  $('veriDurum').textContent=state.hava.kaynak==='canli'?t('durum.canli'):t('durum.cevrimdisi');
+  $('veriDurum').textContent=state.hava.kaynak==='canli'?t('durum.canli'):olcum()?t('durum.medaOlcum',{s:solAdi()}):state.hava.kaynak==='meda-model'?t('durum.medaModel'):t('durum.cevrimdisi');
+  medaSenkron();
   drawMap();drawPowerChart();
 }
 
@@ -611,10 +751,13 @@ function exportMissionReport(){
   const d=state.drone,r=state.rover;
   const rapor={proje:'OSIRISZK Mars Pathfinder 3D',surum:SURUM,olusturma:new Date().toISOString(),
     not:'Eğitim simülasyonu. Rotor gücü momentum teorisiyle (FM 0,27, Ingenuity ≈350 W kalibrasyonu); DL spektrumları TEMSİLÎdir (ölçülmüş değil).',
-    atmosfer:{...state.hava,lst:saatYaz(lst()),sicaklikC:+ortamC().toFixed(1),yogunluk:+rho().toFixed(5)},
+    derinOgrenme:dlPanel?.summary()||null,
+    medaTahminGRU:medaPanel?.F?(()=>{const F=medaPanel.F,fc=medaPanel.forecast(),r=a=>a.map(v=>v==null?null:+v.toFixed(2));return{gorev:F.task,bolme:F.config.split,testMAE:Object.fromEntries(Object.entries(F.metrics.test).map(([k,v])=>[k,{sicaklikC:+meanOf(v.t).toFixed(4),basincPa:+meanOf(v.p).toFixed(4)}])),simdi:fc?{sol:fc.sol,lmst:clockText(fc.m0),rol:fc.role,sicaklikTahminC:r(fc.t),sicaklikOlculenC:r(fc.actualT),basincTahminPa:r(fc.p),basincOlculenPa:r(fc.actualP)}:null};})():null,
+    atmosfer:{...state.hava,lst:saatYaz(lst()),sicaklikC:+ortamC().toFixed(1),yogunluk:+rho().toFixed(5),medaOlcum:olcum()?{sol:medaPanel.sol,basincPa:+olcum().p.toFixed(1),ruzgarMs:+(olcum().ws??0).toFixed(1),ucus:ucusDurumu().level,nedenler:ucusDurumu().reasons,kaynak:medaPanel.data.source}:null},
     gorevSuresiS:+state.time.toFixed(1),sonuc:state.sonuc??'suruyor',
     drone:{enerjiWh:+d.enerjiWh.toFixed(2),kapasiteWh:+droneKap().toFixed(2),dayaniklilik:d.dayaniklilik,durum:d.docked?'kenetli':d.landed?'yerde':d.dustu?'dustu':'ucus'},
-    gezgin:{x:+r.x.toFixed(2),z:+r.z.toFixed(2),enerjiWh:+r.enerjiWh.toFixed(1),bolmeC:+r.bolmeC.toFixed(1)},yedekPiller:state.raf,
+    grafik:{kalite,doku:dunya.dokuKaynak},
+    gezgin:{zemin:TERRAIN_CONFIG.classes[dominantClass(tekerZeminleri(r).karisim)].key,kayma:+r.kayma.toFixed(3),batmaMm:+(r.batmaM*1000).toFixed(2),x:+r.x.toFixed(2),z:+r.z.toFixed(2),enerjiWh:+r.enerjiWh.toFixed(1),bolmeC:+r.bolmeC.toFixed(1)},yedekPiller:state.raf,
     hedefler:TARGETS.map((s,i)=>({ad:hedefAdi(i),tarandi:state.collected[i],dl:state.siniflar[i]&&{sinif:state.siniflar[i].sinif,guven:+state.siniflar[i].guven.toFixed(3),dogru:state.siniflar[i].dogru}})),
     yz:{ml:{ornek:model.ornek,ortHata:model.hataOrt,agirliklar:model.w,sonKarar:state.sonKarar},dl:{mimari:'8-16-16-3 MLP',testDogrulugu:clf?.dogruluk??null}},
     paketler:{gonderilen:state.paketler.gonderilen.length,kuyruk:state.paketler.drone.length+state.paketler.rover.length},
@@ -631,7 +774,7 @@ async function loadGame(file){
     const k=JSON.parse(await file.text());
     if(k.tur!=='osiriszk3d-kayit'||!k.durum?.drone||!k.durum?.rover)throw new Error('format');
     const kamera=state.camera;state=Object.assign(yeniDurum(),k.durum,{camera:kamera,running:false,warp:1});
-    model.yukle(k.ml);keys.clear();setCamera(state.cameraMode);selectVehicle(state.selected,true);
+    model.yukle(k.ml);keys.clear();efektleriTemizle();setCamera(state.cameraMode);selectVehicle(state.selected,true);
     $('pauseBtn').textContent=t('dugme.devam');setWarp(1);renderLog();notify(t('m.yuklendi'));
   }catch(e){notify(t('m.yuklemeHata',{e:e.message}));}
 }
@@ -651,13 +794,13 @@ async function canliVeri(){
   else{addLog(t('l.veriYok'),'warn');console.info('MEDA:',h.hata);}
 }
 function dilDegistir(d){
-  dilAyarla(d);sayfayiCevir();
+  dilAyarla(d);sayfayiCevir();medaPanel?.relabel();dlPanel?.relabel();
   document.querySelectorAll('[data-dil]').forEach(b=>b.classList.toggle('active',b.dataset.dil===d));
   $('pauseBtn').textContent=t(state.running?'dugme.duraklat':'dugme.devam');$('warpBtn').textContent=t('dugme.hizlandir',{x:state.warp});
-  setCamera(state.cameraMode);selectVehicle(state.selected,true);updateUI();
+  kaliteDugmesi();setCamera(state.cameraMode);selectVehicle(state.selected,true);updateUI();
 }
 function reset(){
-  state=yeniDurum();keys.clear();fotolar=[];
+  state=yeniDurum();saatKayma=0;keys.clear();fotolar=[];efektleriTemizle();
   $('pauseBtn').textContent=t('dugme.duraklat');setWarp(1);setCamera('cinematic');selectVehicle('drone',true);
   addLog(t('l.sifir'),'success');notify(t('m.sifir'));
 }
@@ -669,6 +812,9 @@ function bindControls(){
   on('missionBtn',startMission);on('takeoffBtn',takeoff);on('scanBtn',scan);on('dockBtn',()=>dock());on('chargeBtn',swapBattery);
   on('transmitBtn',toggleUplink);on('photoBtn',photo);on('resetBtn',reset);on('pauseBtn',togglePause);on('warpBtn',cycleWarp);
   on('reportBtn',exportMissionReport);on('saveBtn',saveGame);on('loadBtn',()=>$('loadInput').click());on('csvBtn',exportCSV);on('dataBtn',canliVeri);
+  $('qualitySeg').addEventListener('click',e=>{const b=e.target.closest('[data-q]');if(b)kaliteAyarla(b.dataset.q);});
+  $('resSeg').addEventListener('click',e=>{const b=e.target.closest('[data-r]');if(b)cozunurlukAyarla(b.dataset.r);});
+  let rz=0;window.addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(()=>{medaPanel?.render();dlPanel?.render();},120);});
   $('loadInput').addEventListener('change',e=>{const f=e.target.files?.[0];if(f)loadGame(f);e.target.value='';});
   document.querySelectorAll('[data-dil]').forEach(b=>b.addEventListener('click',()=>dilDegistir(b.dataset.dil)));
   document.querySelectorAll('[data-camera]').forEach(b=>b.addEventListener('click',()=>setCamera(b.dataset.camera)));
@@ -687,7 +833,7 @@ function bindControls(){
       if(key==='tab'){selectVehicle(state.selected==='drone'?'rover':'drone');return;}
       if(key==='h'){help.hidden=false;return;}
       if('1234'.includes(key)&&key.length===1){setCamera(['cinematic','drone','rover','top'][Number(key)-1]);return;}
-      const k={f:()=>dock(),b:swapBattery,t:toggleUplink,g:scan,m:startMission,p:togglePause,x:cycleWarp,c:photo,v:openGallery}[key];
+      const k={f:()=>dock(),b:swapBattery,t:toggleUplink,g:scan,m:startMission,p:togglePause,x:cycleWarp,c:photo,v:openGallery,k:kaliteDegistir}[key];
       if(k){k();return;}
       if(key==='r'&&state.selected==='rover'){scan();return;}
       if(key===' '&&state.selected==='drone'&&(state.drone.docked||state.drone.landed)){takeoff();}
@@ -716,13 +862,54 @@ function bindControls(){
   canvas.addEventListener('wheel',e=>{e.preventDefault();state.camera.distance=clamp(state.camera.distance*Math.exp(e.deltaY*.00115),1.8,88);},{passive:false});
 }
 
+// ------------------------------------------------------------- dünya: dokular, arazi ağı, kayalar (v2.4)
+const kareBekle=()=>new Promise(res=>requestAnimationFrame(()=>setTimeout(res,0)));
+async function dunyaKur(q){
+  const Q=QUALITY[q];renderer.pixelRatioCap=Q.pixelRatio;await kareBekle();
+  const tex=await buildTerrainTextures(q,Q.tex,Q.macro,TERRAIN_SPAN/2,dunya.manifest);
+  setMaterialMap(tex.materialMap?.data||null,tex.materialMap?.size||0,TERRAIN_SPAN/2);
+  renderer.deleteTexture(dunya.matTex);renderer.deleteTexture(dunya.macroTex);
+  dunya.matTex=renderer.createTextureArray(tex.layers,tex.size,Q.aniso);dunya.macroTex=renderer.createTexture2D(tex.macro,tex.macroSize);
+  dunya.dokuKaynak=tex.source;dunya.macroAmt=dunya.manifest?.macro?.image?.8:.45;
+  await kareBekle();
+  if(assets.terrain)renderer.dispose(assets.terrain);
+  if(assets.environment){renderer.dispose(assets.environment.scenery);renderer.dispose(assets.environment.route);}
+  assets.terrain=buildTerrain(renderer,Q.grid);await kareBekle();
+  assets.environment=buildEnvironment(renderer,{boulders:Q.boulders,rockLevel:Q.rockLevel});
+  efektleriTemizle();
+}
+const kaliteDugmesi=()=>{
+  document.querySelectorAll('#qualitySeg [data-q]').forEach(b=>{const on=b.dataset.q===kalite;b.classList.toggle('on',on);b.setAttribute('aria-pressed',String(on));});
+  $('qualitySeg').classList.toggle('busy',kaliteMesgul);
+  document.querySelectorAll('#resSeg [data-r]').forEach(b=>{const on=b.dataset.r===cozKey;b.classList.toggle('on',on);b.setAttribute('aria-pressed',String(on));});
+};
+/* v3.3 çözünürlük: OTO = ekranın piksel yoğunluğu (kaliteye göre en çok 1× / 1,45× / 2×); %75…%200 elle seçilir. En uzun kenar 4096 px ile sınırlı (engine.js). */
+const COZ_SECENEK={auto:0,'0.75':.75,'1':1,'1.5':1.5,'2':2},COZ_ANAHTAR='osiriszk.res';
+let cozKey=(()=>{try{const r=new URLSearchParams(location.search).get('cozunurluk')||localStorage.getItem(COZ_ANAHTAR);return r in COZ_SECENEK?r:'auto';}catch{return'auto';}})();
+function cozUygula(){if(renderer){renderer.renderScale=COZ_SECENEK[cozKey];renderer.resize();$('resLabel').textContent=`${canvas.width}×${canvas.height}`;}kaliteDugmesi();}
+function cozunurlukAyarla(k){if(!(k in COZ_SECENEK)||k===cozKey)return;cozKey=k;try{localStorage.setItem(COZ_ANAHTAR,k);}catch{}cozUygula();
+  const m=`${canvas.width}×${canvas.height}`;notify(t('m.coz',{k:t('coz.'+k),px:m}));addLog(t('l.coz',{k:t('coz.'+k),px:m}));}
+function kaliteDegistir(){return kaliteAyarla(['low','medium','high'][(['low','medium','high'].indexOf(kalite)+1)%3]);}
+async function kaliteAyarla(k){
+  if(kaliteMesgul||!QUALITY[k]||k===kalite)return;kaliteMesgul=true;
+  kalite=k;kaliteDugmesi();
+  try{localStorage.setItem(KALITE_ANAHTAR,kalite);}catch{}
+  const calisiyordu=state.running;state.running=false;$('loading').hidden=false;
+  try{await dunyaKur(kalite);}catch(e){console.error(e);notify(e.message);}
+  $('loading').hidden=true;state.running=calisiyordu;kaliteDugmesi();
+  const Q=QUALITY[kalite];notify(t('m.kalite',{k:t('kalite.'+kalite)}));addLog(t('l.kalite',{k:t('kalite.'+kalite),px:Q.tex,g:Q.grid}));
+  kaliteMesgul=false;kaliteDugmesi();
+}
+/** Xbox ve PlayStation kumandaları tarayıcıda aynı "standart" düzeni kullanır; yalnızca düğme adları farklıdır. */
+function kumandaTuru(){const id=(gamepad.id||'').toLowerCase();return /054c|dualsense|dualshock|playstation|wireless controller/.test(id)?'ps':/045e|xbox|xinput/.test(id)?'xbox':'diger';}
+
 // ------------------------------------------------------------- döngü ve başlangıç
 function frame(ts){
   if(!lastFrame)lastFrame=ts;const dt=Math.min((ts-lastFrame)/1000,.05);lastFrame=ts;
   try{
-    updatePhysics(dt);drawScene(dt);if(fotoIste)fotoKaydet();
+    kumanda(dt);updatePhysics(dt);efektleriGuncelle(dt);drawScene(dt);if(fotoIste)fotoKaydet();
     uiTimer+=dt;frameCount++;fpsTime+=dt;
-    if(fpsTime>=.7){$('fps').textContent=Math.round(frameCount/fpsTime);fpsTime=0;frameCount=0;}
+    if(fpsTime>=.7){$('fps').textContent=Math.round(frameCount/fpsTime);$('resLabel').textContent=`${canvas.width}×${canvas.height}`;fpsTime=0;frameCount=0;}
     if(uiTimer>=.15){uiTimer=0;updateUI();}
   }catch(err){console.error('OSIRISZK frame:',err);notify(err.message);}
   requestAnimationFrame(frame);
@@ -736,23 +923,44 @@ async function yapilandirmaOku(){
     return true;
   }catch{return false;}
 }
+/* MEDA paneli: saat kaydırıcısı / grafik tıklaması oyunun Jezero saatini ayarlar; oyun saati de paneli yürütür. */
+const solAdi=()=>medaPanel.sol==='birlesik'?(medaPanel.data.composite.sols||[]).join('+'):medaPanel.sol;
+function medaDegisti(cur,st,onceki){
+  const hedef=cur.minute/60,simdi=((LST0+state.time*24/SABIT.SOL_S)%24+24)%24;
+  saatKayma=((hedef-simdi)%24+24)%24;olcumDk=-1;
+  if(onceki&&st.level!==onceki)addLog(t('l.medaDurum',{d:t('meda.d.'+st.level),s:clockText(cur.minute)}),st.level==='no'?'warn':st.level==='ok'?'success':'');
+}
+let medaSonDk=-1,medaSonSol=null,medaSonSeviye=null;
+function medaSenkron(){
+  if(!medaPanel?.data)return;const dk=Math.floor(lst()*60);
+  if(dk===medaSonDk&&medaPanel.sol===medaSonSol)return;medaSonDk=dk;medaSonSol=medaPanel.sol;
+  medaPanel.minute=dk;medaPanel.cur=sample(medaPanel.data,medaPanel.sol,dk);medaPanel.status=flightStatus(medaPanel.cur);
+  if(medaSonSeviye&&medaPanel.status.level!==medaSonSeviye&&state.selected==='drone')addLog(t('l.medaDurum',{d:t('meda.d.'+medaPanel.status.level),s:clockText(dk)}),medaPanel.status.level==='no'?'warn':'');
+  medaSonSeviye=medaPanel.status.level;medaPanel.render();
+}
 async function init(){
   dilDegistirSessiz(baslangicDili());
   try{
     canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();$('webglError').hidden=false;});
     canvas.addEventListener('webglcontextrestored',()=>location.reload());
-    renderer=new Renderer(canvas);
-    assets={terrain:buildTerrain(renderer),environment:buildEnvironment(renderer),rover:buildRover(renderer),drone:buildDrone(renderer),extra:buildExtra(renderer)};
+    renderer=new Renderer(canvas);renderer.renderScale=COZ_SECENEK[cozKey];
+    await loadTerrainConfig();dunya.manifest=await loadManifest();
+    Object.assign(assets,{rover:buildRover(renderer),drone:buildDrone(renderer),extra:buildExtra(renderer)});
+    await dunyaKur(kalite);
   }catch(err){console.error('OSIRISZK startup:',err);$('loading').hidden=true;$('webglError').hidden=false;return;}
   const json=await yapilandirmaOku();
   try{const k=JSON.parse(localStorage.getItem(ML_ANAHTAR)||'null');if(k)model.yukle(k);}catch{}
   roverEgim();const p=padPos();Object.assign(state.drone,{x:p[0],y:p[1],z:p[2]});
-  bindControls();setWarp(1);setCamera('cinematic');selectVehicle('drone',true);
+  const medaVeri=await loadMeda();medaPanel=new MedaPanel(medaVeri,{onChange:medaDegisti,minute:Math.round(lst()*60)}).mount($('medaPanel'));medaPanel.status=flightStatus(medaPanel.cur);
+  const tahmin=medaVeri?await loadForecast():null;if(medaVeri)medaPanel.setForecast(tahmin);
+  if(tahmin){const M=tahmin.metrics.test;addLog(t('l.medaGru',{s:tahmin.config.split.test.join(','),g:meanOf(M.gru.t).toFixed(2),d:meanOf(M.diurnal.t).toFixed(2)}),'success');}
+  dlPanel=new DLPanel($('dlPanel'),{onLog:addLog});dlPanel.setTab('rock');
+  bindControls();kaliteDugmesi();setWarp(1);setCamera('cinematic');selectVehicle('drone',true);
   addLog(t('l.basla1'));addLog(t('l.basla2')+(json?' · modeller.json v1.0':''),'success');
   updateUI();$('loading').hidden=true;
-  window.__OSIRISZK_TEST__={get state(){return state;},renderer,assets,model,get clf(){return clf;},CFG,adim,updatePhysics,takeoff,dock,scan,startMission,reset,swapBattery,toggleUplink,setWarp,selectVehicle,setCamera,saveGame,exportCSV,photo,canliVeri,dilDegistir,padPos,lst,rho,firtina:()=>firtina(),keys};
+  window.__OSIRISZK_TEST__={kaliteDegistir,kaliteAyarla,cozunurlukAyarla,get cozKey(){return cozKey;},get medaPanel(){return medaPanel;},get dlPanel(){return dlPanel;},olcum,ucusDurumu,get kalite(){return kalite;},dunya,ENGELLER,get state(){return state;},renderer,assets,model,get clf(){return clf;},CFG,adim,updatePhysics,takeoff,dock,scan,startMission,reset,swapBattery,toggleUplink,setWarp,selectVehicle,setCamera,saveGame,exportCSV,photo,canliVeri,dilDegistir,padPos,lst,rho,firtina:()=>firtina(),keys};
   requestAnimationFrame(frame);
-  setTimeout(()=>{siniflandiriciyiHazirla();canliVeri();},400);
+  setTimeout(()=>{siniflandiriciyiHazirla();canliVeri();dlPanel.train(2025);},400);
 }
 function dilDegistirSessiz(d){dilAyarla(d);sayfayiCevir();document.querySelectorAll('[data-dil]').forEach(b=>b.classList.toggle('active',b.dataset.dil===d));$('pauseBtn').textContent=t('dugme.duraklat');}
 init();

@@ -18,6 +18,7 @@
  *       0,10 m/s, 120 W güneş, 1,2 kWh, 100 W indüktif şarj, 2–3 dk pil değişimi, 0,30 m engel,
  *       30° eğim; drone 1,8 kg, Ø1,20 m eş eksenli rotor, 2400 dev/dk.
  * ========================================================================== */
+import {wheelContact,traction} from './terramechanics.js';
 
 export const SABIT = Object.freeze({
   g: 3.71,                    // m/s² [K3]
@@ -45,8 +46,47 @@ export function varsayilanHava() {
     kaynak: 'cevrimdisi', etiket: 'Yayımlanmış MEDA aralığı (çevrimdışı)' };
 }
 
-/** Yerel güneş saatine (0–24) göre hava sıcaklığı: en düşük ~05:30, en yüksek ~14:00 (MEDA günlük eğrisi biçiminde). */
+
+// ------------------------------------------------------------------ MEDA ÖLÇÜMLERİNDEN EĞİTİLEN GÜN İÇİ MODEL
+/**
+ * Perseverance MEDA türetilmiş verisi (NASA PDS Atmospheres), sol 105–107 ve 109–110. Ölçümler 10 dakikalık
+ * medyanlara indirildi; sol 105–107 eğitim, sol 109–110 test (modelin hiç görmediği iki gün).
+ * Model: f(t) = a0 + Σ ak·cos(2πkt/24) + bk·sin(2πkt/24), t = yerel ortalama güneş saati (LMST), en küçük kareler.
+ *  · Basınç: DER_PS → PRESSURE (Pa), 4 harmonik · test RMSE 1,09 Pa, R² 0,945
+ *  · Sıcaklık: DER_RHS → HUMIDITY_LOCAL_TEMP (K), 4 harmonik · test RMSE 1,39 K, R² 0,996
+ *      YAKLAŞIK: bu, nem sensörünün kendi sıcaklığıdır; hava sıcaklığı (ATS) dosyası bu veri setinde yok.
+ *  · Rüzgâr: DER_WS → HORIZONTAL_WIND_SPEED (m/s), yalnız ROVER_STILL = 1, 3 harmonik · test RMSE 0,99 m/s, R² 0,60
+ *      (4 harmonikte test R² düşer: aşırı öğrenme). Rüzgârın gün içi deseni zayıf.
+ * Oyun önce assets/meda/meda_sols.json'daki ölçümleri kullanır; bu model o dosya yüklenemezse yedektir.
+ * Yeniden üretmek için: tools/meda_prep.py (ölçüm dosyası) ve tools/meda_model.py (bu katsayılar).
+ */
+export const MEDA_MODEL = {
+  soller: [105, 106, 107, 109, 110], egitimSolleri: [105, 106, 107], testSolleri: [109, 110],
+  basincPa: [761.0672, 1.1853, 1.4967, -3.5535, -3.4771, 2.2565, -0.7373, -0.1016, 1.6585],
+  sicaklikK: [224.5502, -25.1249, -15.2762, 3.1353, 0.3918, 3.8744, 4.291, -2.0989, -0.6227],
+  ruzgarMs: [3.0927, -0.553, -1.2667, 0.9165, 0.3432, 0.5922, -0.2646],
+  test: { basincRmsePa: 1.09, basincR2: 0.945, sicaklikRmseK: 1.39, sicaklikR2: 0.996, ruzgarRmseMs: 0.99, ruzgarR2: 0.597 },
+};
+/** Harmonik seri: w = [a0, a1, b1, a2, b2, ...], saat 0–24 */
+export function harmonik(w, saat) {
+  let y = w[0];
+  for (let k = 1; 2 * k < w.length; k++) { const a = 2 * Math.PI * k * saat / 24; y += w[2 * k - 1] * Math.cos(a) + w[2 * k] * Math.sin(a); }
+  return y;
+}
+/** Varsayılan hava: sol 105–107 MEDA ölçümlerinden eğitilen, 109–110 ile sınanan model (Jezero, kuzey ilkbaharı). */
+export function medaHava() {
+  const M = MEDA_MODEL;
+  return { basincPa: Math.round(M.basincPa[0]), minC: -78, maxC: -21, opaklik: 0.6, ls: 55, model: M,
+    kaynak: 'meda-model', etiket: 'MEDA ölçümlerinden eğitilen model · sol 105–110' };
+}
+/** O saatteki basınç (Pa): model varsa gün içi eğri, yoksa sabit değer. */
+export function basincPa(lst, hava) { return hava.model ? harmonik(hava.model.basincPa, lst) : hava.basincPa; }
+/** O saatteki ortalama yüzey rüzgârı (m/s): yalnız MEDA modelinde. */
+export function zeminRuzgari(lst, hava) { return hava.model ? Math.max(0, harmonik(hava.model.ruzgarMs, lst)) : 0; }
+
+/** Yerel güneş saatine (0–24) göre hava sıcaklığı. MEDA modeli varsa ölçülen eğri; yoksa en düşük ~05:30, en yüksek ~14:00 olan yaklaşık eğri. */
 export function havaSicakligiC(lst, hava) {
+  if (hava.model) return harmonik(hava.model.sicaklikK, lst) - 273.15;
   const enDusuk = 5.5, enYuksek = 14;
   let t;
   if (lst >= enDusuk && lst <= enYuksek) t = (1 - Math.cos(Math.PI * (lst - enDusuk) / (enYuksek - enDusuk))) / 2;
@@ -160,4 +200,27 @@ export function firtinaDurumu(gorevS, tohum = 7) {
 export function tahminiKalanUcusS(enerjiWh, gucW, rezervOrani = 0.3, kapasiteWh = 44.4) {
   const kullanilabilir = Math.max(0, enerjiWh - rezervOrani * kapasiteWh);
   return gucW > 0 ? (kullanilabilir * 3600) / gucW : Infinity;
+}
+
+// ---------------------------------------------------------------------------
+// Zeminde sürüş (v3.2) — 3D Pro v2.4'ün terramekanik modeliyle (Bekker batma, Mohr-Coulomb,
+// Janosi-Hanamoto). Gezgin çok yavaş gittiği için ivmelenme ihmal edilir (yarı-statik denge):
+// kayma oranı s, çekişin sıkıştırma direnci + eğim bileşenine eşit olduğu değerdir.
+//   gerçek hız = teker çevre hızı × (1 − s).  Denge yoksa (çekiş yetmiyorsa) gezgin saplanır.
+// VARSAYIM: v2.4 modeli düz (tırnaksız) teker içindir ve küçük tekerde çekişi düşük verir. Gerçek gezgin
+// tekerlerindeki tırnakların (grouser) yumuşak zemindeki katkısı tek bir çarpanla temsil edilir; kayada etkisizdir.
+export const TIRNAK_CARPANI=2.2;
+/** zeminler: her teker için blendSoil() çıktısı. tekerHizi: teker çevre hızı (m/s, + ileri). egimRad: + yokuş yukarı (ileri yöne göre). */
+export function zeminSurusu({zeminler,kutleKg,tekerHizi,egimRad=0,capM,genislikM}){
+  const n=zeminler.length,Wn=kutleKg*SABIT.g*Math.cos(egimRad)/n,yon=Math.sign(tekerHizi);
+  const denge=s=>{let Rc=0,H=0,z=0;for(const zm of zeminler){const c=wheelContact(zm,Wn,capM,genislikM,s);Rc+=c.Rc;H+=Math.abs(traction(c,s))*(1+(TIRNAK_CARPANI-1)*(1-c.rf));z+=c.z;}
+    return{gerek:Rc+yon*kutleKg*SABIT.g*Math.sin(egimRad),cekis:H,batma:z/n,direnc:Rc};};
+  const d0=denge(0);
+  if(!yon)return{hiz:0,kayma:0,batmaM:d0.batma,direncN:0,cekisN:0,saplandi:false};
+  if(d0.gerek<=0)return{hiz:tekerHizi,kayma:0,batmaM:d0.batma,direncN:0,cekisN:0,saplandi:false};   // yokuş aşağı: motor freni tutar
+  const d1=denge(1);
+  if(d1.cekis<d1.gerek)return{hiz:0,kayma:1,batmaM:d1.batma,direncN:d1.gerek,cekisN:d1.cekis,saplandi:true};
+  let a=0,b=1;for(let i=0;i<22;i++){const m=(a+b)/2,d=denge(m);if(d.cekis<d.gerek)a=m;else b=m;}
+  const d=denge(b);
+  return{hiz:tekerHizi*(1-b),kayma:b,batmaM:d.batma,direncN:d.gerek,cekisN:d.cekis,saplandi:false};
 }

@@ -1,0 +1,3 @@
+Veri setlerinin zip dosyalarini istediginiz yere koyabilirsiniz; 01_prepare_dataset.py zipleri raw/ altina acar.
+raw/        : acilmis veri setleri (otomatik)
+processed/  : index.csv, oznitelik onbellegi (otomatik)

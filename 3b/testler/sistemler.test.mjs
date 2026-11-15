@@ -1,5 +1,4 @@
-// Mars Pathfinder 3D (3b/) — fizik, dil, yapay zekâ ve veri modülleri
-// Çalıştırma (depo kökünden):  node --test 3b/testler/sistemler.test.mjs
+// Mars Pathfinder 3D (app/public/gezgin) — fizik, dil, yapay zekâ ve veri modülleri
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -9,6 +8,8 @@ const S = await import(new URL('sistemler.js', kok));
 const Y = await import(new URL('yz.js', kok));
 const { DILLER } = await import(new URL('dil.js', kok));
 const V = await import(new URL('veri.js', kok));
+const TM = await import(new URL('terramechanics.js', kok));
+const ZEMIN = JSON.parse(readFileSync(new URL('assets/terrain/terrain_classes.json', kok), 'utf8'));
 const MODEL = JSON.parse(readFileSync(new URL('../modeller/modeller.json', kok), 'utf8'));
 
 const W = MODEL.drone.kutle_kg * S.SABIT.g;
@@ -109,7 +110,120 @@ test('MEDA akışı ayrıştırılır; ulaşılamazsa veri uydurulmaz', async ()
     { sol: '1001', pressure: '--', min_temp: '-81', max_temp: '-21' }] });
   assert.equal(s.sol, 1000); assert.equal(s.p, 690);
   const h = await V.canliHavaAl({ fetchImpl: async () => { throw new Error('ağ yok'); }, zamanAsimi: 50 });
-  assert.equal(h.kaynak, 'cevrimdisi'); assert.ok(h.hata);
+  assert.equal(h.kaynak, 'meda-model'); assert.ok(h.hata);
   const c = await V.canliHavaAl({ fetchImpl: async () => ({ ok: true, json: async () => ({ sols: [{ sol: 5, pressure: 700, min_temp: -70, max_temp: -10 }] }) }) });
   assert.equal(c.kaynak, 'canli'); assert.equal(c.basincPa, 700);
+});
+
+test('terramekanik: kum ve tozda kayma regolitten büyük, ana kayada en küçük; dik kumda saplanır', () => {
+  const sur = (i, egimDeg = 0) => {
+    const w = [0, 0, 0, 0, 0]; w[i] = 1;
+    const zemin = TM.blendSoil(w, ZEMIN.classes);
+    return S.zeminSurusu({ zeminler: Array(6).fill(zemin), kutleKg: MODEL.gezgin.kutle_kg, tekerHizi: 0.1, egimRad: egimDeg * Math.PI / 180, capM: 0.26, genislikM: 0.08 });
+  };
+  const [regolit, kum, kaya, , toz] = [0, 1, 2, 3, 4].map((i) => sur(i));
+  assert.ok(kaya.kayma < regolit.kayma && regolit.kayma < kum.kayma && kum.kayma < toz.kayma);
+  assert.ok(kaya.hiz > 0.09 && regolit.hiz > 0.05 && regolit.hiz < 0.1);
+  assert.equal(kaya.batmaM, 0);
+  assert.ok(sur(4, 29).saplandi && !sur(0, 29).saplandi);
+  assert.equal(sur(0, -10).kayma, 0);            // yokuş aşağı: kayma yok
+  assert.equal(S.zeminSurusu({ zeminler: [TM.blendSoil([1, 0, 0, 0, 0], ZEMIN.classes)], kutleKg: 45, tekerHizi: 0, capM: 0.26, genislikM: 0.08 }).hiz, 0);
+});
+
+test('MEDA modeli (sol 105–110): ölçülen gün içi döngü ve Ingenuity gücü', () => {
+  const h = S.medaHava();
+  assert.equal(S.harmonik([5, 0, 0], 13), 5);
+  const sabah = S.havaSicakligiC(5, h), ogle = S.havaSicakligiC(14, h);
+  assert.ok(sabah < -65 && ogle > -26 && ogle < -15, `sıcaklık ${sabah} / ${ogle}`);
+  for (let t = 0; t < 24; t += 0.5) {
+    const p = S.basincPa(t, h);
+    assert.ok(p > 750 && p < 775, `basınç ${p} @${t}`);
+    const P = S.rotorGucu({ itkiN: W, rho: S.yogunluk(p, S.havaSicakligiC(t, h)), rotorCapM: CAP });
+    assert.ok(P > 300 && P < 360, `güç ${P} @${t}`);
+  }
+  assert.ok(S.zeminRuzgari(15, h) > S.zeminRuzgari(3, h));
+  assert.ok(S.MEDA_MODEL.test.basincR2 > 0.9 && S.MEDA_MODEL.test.sicaklikR2 > 0.9);
+});
+
+// ------------------------------------------------------------------ v3.3: MEDA ölçüm paneli (v2.5'ten)
+const M = await import(new URL('meda.js', kok));
+const MEDA = JSON.parse(readFileSync(new URL('assets/meda/meda_sols.json', kok), 'utf8'));
+
+test('MEDA ölçüm dosyası: 5 sol, 144 kutu, ρ oyunun R değeriyle', () => {
+  assert.deepEqual(Object.keys(MEDA.sols), ['105', '106', '107', '109', '110']);
+  assert.equal(MEDA.files.length, 25);
+  for (const s of Object.values(MEDA.sols)) {
+    assert.equal(s.bins.p.length, 144);
+    s.bins.p.forEach((p, i) => {
+      const T = s.bins.t[i], r = s.bins.rho[i];
+      if (p == null || T == null) return;
+      assert.ok(p > 740 && p < 790, `basınç ${p}`);
+      assert.ok(Math.abs(r - S.yogunluk(p, T)) < 2e-5, `ρ ${r} ≠ ${S.yogunluk(p, T)}`);
+    });
+  }
+});
+
+test('MEDA örnekleme: boşluk birleşik döngüden, rüzgâr yönü dairesel', () => {
+  const o = M.sample(MEDA, '109', 9 * 60);
+  assert.ok(o.p > 750 && o.p < 780 && o.t < -20 && o.t > -80);
+  for (let dk = 0; dk < 1440; dk += 37) {
+    const s = M.sample(MEDA, 'birlesik', dk);
+    assert.ok(s.p != null && s.rho > 0.012 && s.rho < 0.025, `dk ${dk}: ${s.rho}`);
+    if (s.wd != null) assert.ok(s.wd >= 0 && s.wd < 360);
+  }
+  assert.deepEqual(M.windVector(0, 90), [0, 0]);
+  const [x, z] = M.windVector(2, 0);            // kuzeyden esen rüzgâr güneye (+z) akar
+  assert.ok(Math.abs(x) < 1e-9 && Math.abs(z - 2) < 1e-9);
+});
+
+test('MEDA uçuş kuralları: seyrek hava ve fırtına yasak, sakin sabah uygun', () => {
+  assert.equal(M.flightStatus({ rho: 0.019, ws: 2, wmax: 3, t: -40, sza: 40 }).level, 'ok');
+  assert.equal(M.flightStatus({ rho: 0.012, ws: 2, wmax: 3, t: -40, sza: 40 }).level, 'marginal');
+  assert.equal(M.flightStatus({ rho: 0.0105, ws: 2, wmax: 3, t: -40, sza: 40 }).level, 'no');
+  assert.equal(M.flightStatus({ rho: 0.019, ws: 11, wmax: 12, t: -40, sza: 40 }).level, 'no');
+  const P = M.hoverPowerW(0.017);
+  assert.ok(P > 300 && P < 380, `askı gücü ${P}`);
+});
+
+test('MEDA paneli ve çözünürlük dizgileri iki dilde', () => {
+  for (const k of ['meda.baslik', 'meda.d.ok', 'meda.d.no', 'meda.kaynak', 'coz.baslik', 'coz.auto', 'kalite.baslik', 'm.medaYasak', 'durum.medaOlcum']) {
+    assert.ok(DILLER.tr[k] && DILLER.en[k], k);
+  }
+  assert.equal(DILLER.en['meda.pusula'].split(',').length, 8);
+});
+
+// ------------------------------------------------------------------ v3.3: GRU tahmini, MLP ve kuantum sınıflandırıcı (v2.6'dan)
+const TAHMIN = JSON.parse(readFileSync(new URL('assets/meda/meda_tahmin.json', kok), 'utf8'));
+const NN = await import(new URL('nn.js', kok));
+const Q = await import(new URL('quantum.js', kok));
+
+test('GRU tahmini: tarayıcı hesabı PyTorch denetim çıktılarıyla aynı', () => {
+  assert.deepEqual(TAHMIN.config.split, { train: [105, 106, 107], val: [109], test: [110] });
+  for (const c of TAHMIN.checks) {
+    const r = M.forecastAt(TAHMIN, String(c.sol), c.m0);
+    const fark = Math.max(...r.delta.map((v, i) => Math.abs(v / TAHMIN.norm.ysd[i] - c.pred[i])));
+    const farkHam = Math.max(...r.delta.map((v, i) => Math.abs(v - c.pred[i])));
+    assert.ok(Math.min(fark, farkHam) < 5e-3, `sol ${c.sol} dk ${c.m0}: ${fark} / ${farkHam}`);
+  }
+  // test gününde GRU sıcaklıkta kalıcılık tahmininden belirgin iyi
+  const T = TAHMIN.metrics.test;
+  assert.ok(M.meanOf(T.gru.t) < 0.6 * M.meanOf(T.persistence.t));
+});
+
+test('kuantum devre simülatörü: olasılıklar 1 eder, RY(π) ve CNOT doğru', () => {
+  const s = Q.newState(); Q.ry(s, 0, Math.PI); Q.cnot(s, 0, 1);
+  const p = Q.probs(s);
+  assert.ok(Math.abs(p.reduce((a, b) => a + b, 0) - 1) < 1e-12);
+  assert.ok(Math.abs(p[0b11] - 1) < 1e-12);                 // |00⟩ → |01⟩ → |11⟩
+  assert.ok(Math.abs(Q.expZ(p, 0) + 1) < 1e-12 && Math.abs(Q.expZ(p, 2) - 1) < 1e-12);
+});
+
+test('MLP kaya sınıflandırıcı tarayıcıdaki gibi eğitilir (temsilî spektrum)', () => {
+  const r = new NN.RockTrainer(2025); while (!r.done) r.step();
+  assert.ok(r.test.accuracy > 0.9, `doğruluk ${r.test.accuracy}`);
+  assert.equal(NN.ROCK_CLASSES.length, 3);
+});
+
+test('DL/kuantum paneli ve GRU sekmesi dizgileri iki dilde', () => {
+  for (const k of ['dl.baslik', 'dl.not.quantum', 'dl.l.vqc', 'meda.fc.sekme', 'meda.fc.kaynak', 'l.medaGru']) assert.ok(DILLER.tr[k] && DILLER.en[k], k);
 });

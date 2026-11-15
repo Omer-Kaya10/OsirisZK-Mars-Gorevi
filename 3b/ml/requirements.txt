@@ -1,0 +1,7 @@
+# Klasik makine öğrenmesi + veri hazırlama + oyun dokusu üretimi
+numpy>=1.23
+pillow>=9.0
+scikit-learn>=1.2
+scikit-image>=0.20
+joblib>=1.2
+matplotlib>=3.6

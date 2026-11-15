@@ -1,0 +1,4 @@
+# Derin öğrenme (PyTorch). NVIDIA ekran kartı varsa CUDA sürümü için: https://pytorch.org/get-started/locally/
+torch>=2.1
+torchvision>=0.16
+onnx>=1.14

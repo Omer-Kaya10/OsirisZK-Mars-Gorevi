@@ -1,0 +1,1 @@
+Egitilen modeller buraya yazilir: ml_<alan>.joblib, dl_<alan>_<mimari>.pt, dl_<alan>.onnx

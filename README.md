@@ -50,7 +50,8 @@ python -m unittest discover -s web -p "test_*.py"      # depo kökünden
 node --test 3b/testler/sistemler.test.mjs                                # 3B oyun (Node 20+)
 ```
 
-### 3B sürüm (`3b/`) — v3.0
+### 3B sürüm (`3b/`) — v3.2
+**Kullanım kılavuzu:** `3b/kilavuz.html` (TR/EN) — kontroller, görev kuralları, fizik, yapay zekâ, oyunu özgün yapanlar ve makine öğrenmesi yol haritası.
 Aynı görevin gerçek zamanlı 3B sürümü; adresin sonuna `/3b/` ekleyerek açılır. Python oyununa dokunmaz, yanında durur.
 - **Fizik (`3b/sistemler.js`):** momentum teorisiyle rotor gücü (Ingenuity'nin ≈350 W uçuş gücüne kalibre),
   ρ = p/(R·T), güneş yüksekliği ve toz opaklığıyla panel gücü, sıcaklığa bağlı Li-ion kapasitesi, enerji Wh.
@@ -60,7 +61,12 @@ Aynı görevin gerçek zamanlı 3B sürümü; adresin sonuna `/3b/` ekleyerek a�
 - **Makine öğrenmesi (`3b/yz.js`):** drone uçarken güç tüketimini öğrenir (çevrimiçi RLS) ve her hedeften önce
   "dönüşe pil yeter mi" kararını verir.
 - **Derin öğrenme:** 8-16-16-3 sinir ağı taranan kayayı sınıflandırır. Eğitim spektrumları **temsilîdir**, ölçülmüş değildir.
-- TR/EN, dokunmatik kumanda, kaydet/yükle, CSV telemetri, kamera arşivi, zaman hızlandırma.
+- TR/EN, dokunmatik kumanda, **Xbox oyun kumandası**, kaydet/yükle, CSV telemetri, kamera arşivi, zaman hızlandırma.
+- 3D Pro v2.3 ile gelenler: ok tuşlarıyla dönüş, arkadan izleyen kamera, pusula, rotor tozu, tekerlek izleri.
+- 3D Pro v2.4 ile gelenler: 5 zemin sınıfı ve terramekanik (`3b/assets/terrain/terrain_classes.json`), dokulu arazi,
+  üç grafik kalitesi (K), PlayStation kumandası desteği.
+- `3b/ml/`: Mars zemin fotoğraflarını sınıflandıran eğitim hattı (klasik ML + derin öğrenme, Python). Oyun bu
+  paketlere ihtiyaç duymaz; kurulum ve veri setleri için `3b/ml/README_ML.md`.
 
 ### v3.1 → v3.2 değişiklikleri
 - Web sürümü (Pyodide) ve Türkçe/English dil seçici; tablet için dokunmatik kumanda.

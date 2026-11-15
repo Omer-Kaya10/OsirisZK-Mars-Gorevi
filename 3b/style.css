@@ -16,3 +16,109 @@
 @media(max-width:1300px){#reportBtn,#csvBtn{display:none}}@media(max-width:1100px){#dataBtn{display:none}}
 @media(max-width:840px){.top-actions{gap:5px}.top-actions .subtle{padding:7px 8px;font-size:8px}#saveBtn,#loadBtn,#helpBtn{display:none}.touch-pad{bottom:70px}.storm-banner{top:56px;font-size:8px}}
 @media(max-width:1100px){.top-actions #warpBtn,.top-actions #pauseBtn{display:inline-block}}
+/* v2.3'ten: oyun kumandası kılavuzu ve rozeti */
+.help-pad{background:#162634;padding:16px 18px;margin:0 0 4px}.help-pad h3{color:#dfaa78;font-size:11px;letter-spacing:1px;margin:0 0 6px}.help-pad-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.help-pad-grid b{display:block;font-size:10px;color:#9fb6bf;letter-spacing:1.2px;margin-top:6px}.help-pad-grid p{font-size:11.5px;color:#c3d1d7;margin:7px 0}.pad-not{font-size:10.5px;color:#8fa6b0;margin:8px 0 0}#padBadge{color:#9fe0c8;border-color:#71d3ad66}
+.help-dialog{max-height:94vh;overflow:auto}@media(max-width:840px){.help-pad-grid{grid-template-columns:1fr}}
+/* v2.4'ten: zemin karışım şeridi */
+.soil-bars{display:flex;height:7px;margin-top:9px;border-radius:2px;overflow:hidden;background:#101c26}.soil-bars span{min-width:0}
+a.btn{text-decoration:none;display:inline-block}
+@media(max-width:600px){.viewer-bottom .coords{display:none}}
+
+/* v3.3 (v2.5'ten): grafik/çözünürlük düğmeleri ve MEDA hava paneli */
+.viewer-top-left{display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0}
+.quality-seg{pointer-events:auto;display:flex;align-items:center;gap:2px;padding:3px;background:#11212dcc;border:1px solid #ffffff2b;border-radius:3px;box-shadow:0 2px 12px #0005}
+.quality-seg span{font-size:9px;font-weight:800;letter-spacing:1px;color:#e6b07a;padding:0 7px 0 5px;white-space:nowrap}
+.quality-seg button{background:transparent;border:0;border-radius:2px;color:#c3d1d7;font:800 9px Inter,"Segoe UI",sans-serif;letter-spacing:.8px;padding:6px 9px;cursor:pointer}
+.quality-seg button:hover{background:#ffffff1c;color:#fff}
+.quality-seg button.on{background:#ce9664;color:#0e151b}
+.quality-seg.busy{opacity:.55;pointer-events:none}
+.data-row{align-items:stretch}
+.data-row .module-pad{min-width:0;display:flex;flex-direction:column}
+.seg{display:flex;flex-wrap:wrap;gap:3px}
+.seg button,.seg-btn{background:#172534;border:1px solid #2b4051;color:#9fb2bd;font:800 9px Inter,"Segoe UI",sans-serif;letter-spacing:.6px;padding:5px 7px;border-radius:3px;cursor:pointer;white-space:nowrap}
+.seg button:hover,.seg-btn:hover{background:#21364a;color:#eef2f3}
+.seg button.on{background:#c98953;border-color:#e4a76d;color:#0e151b}
+.meda-bar{display:flex;flex-direction:column;gap:4px;margin-top:10px}
+#medaChart{display:block;width:100%;height:124px;margin-top:8px;cursor:crosshair;background:#0d1720;border:1px solid #1f3140;border-radius:3px;touch-action:none}
+.meda-time{display:flex;align-items:center;gap:5px;margin-top:7px}
+.meda-time input{flex:1;min-width:60px;accent-color:#e4a76d;height:16px}
+.meda-time b{font:700 12px Consolas,monospace;color:#e4e8ed;min-width:84px;text-align:right}
+.meda-read{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;margin-top:7px}
+.meda-read>div{background:#0d1720;border:1px solid #1f3140;border-radius:3px;padding:5px 6px;min-width:0;overflow:hidden}
+.meda-read small{display:block;font-size:8px;color:#7794a4;letter-spacing:.6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meda-read b{font:700 11.5px/1.5 Consolas,monospace;color:#edf2f3;white-space:nowrap}
+.meda-read em{font-style:normal;font-size:8px;color:#7f97a5;margin-left:2px;font-family:Inter,sans-serif}
+.meda-read i{color:#e0b25c;font-style:normal}
+.warrow{display:inline-block;color:#9fc6e6;font-family:Inter,sans-serif}
+.meda-flight{display:flex;flex-wrap:wrap;align-items:center;gap:3px 10px;margin-top:7px;padding:6px 9px;border:1px solid;border-radius:3px;font-size:10px;color:#c9d6dc;line-height:1.4}
+.meda-flight b{font-size:10px;letter-spacing:1px}
+.meda-flight.ok{border-color:#2f6b5f;background:#10282a}
+.meda-flight.ok b{color:#77d0bf}
+.meda-flight.marginal{border-color:#7a6232;background:#272215}
+.meda-flight.marginal b{color:#e7b95f}
+.meda-flight.no{border-color:#7a3a32;background:#2a1716}
+.meda-flight.no b{color:#ec7a63}
+.meda-energy{margin-left:auto;color:#a3b3be;font:10px Consolas,monospace;white-space:nowrap}
+.meda-src{font-size:8.5px;color:#6c8494;margin-top:auto;padding-top:7px;line-height:1.45}
+.meda-empty{color:#a3b3be;font-size:11px;line-height:1.5}
+.meda-row{grid-template-columns:1fr}.meda-pad{display:flex;flex-direction:column;min-height:0}
+.viewer-top{align-items:flex-start}.viewer-top-left{pointer-events:none}.viewer-top-left .quality-seg{pointer-events:auto}
+@media(max-width:840px){.quality-seg span{font-size:8px;padding:0 4px}.quality-seg button{padding:5px 6px;font-size:8px}.meda-energy{margin-left:0}.meda-read{grid-template-columns:repeat(3,1fr)}}
+
+/* v3.3 (v2.6'dan): derin öğrenme & kuantum paneli, GRU tahmin sekmesi */
+.dl-tabs{margin-top:10px}
+.dl-body{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:9px}
+.dl-body[hidden]{display:none}
+.dl-col{min-width:0}
+.dl-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.dl-kpis>div{background:#0d1720;border:1px solid #1f3140;border-radius:3px;padding:5px 7px;min-width:0}
+.dl-kpis small{display:block;font-size:7.5px;color:#7794a4;letter-spacing:.6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dl-kpis strong{font:700 14px/1.5 Consolas,monospace;color:#77d0bf;white-space:nowrap}
+#dlLoss{display:block;width:100%;height:78px;margin-top:6px;background:#0d1720;border:1px solid #1f3140;border-radius:3px}
+.dl-cm table,.dl-cm-big{width:100%;border-collapse:collapse;margin-top:6px;font:10px Consolas,monospace;table-layout:fixed}
+.dl-cm th,.dl-cm td,.dl-cm-big th,.dl-cm-big td{border:1px solid #1f3140;padding:3px 2px;text-align:center;color:#c9d6dc;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dl-cm th,.dl-cm-big th{font:700 8.5px Inter,sans-serif;color:#8ea6b3;letter-spacing:.3px;background:#0d1720}
+.dl-cm tr th:first-child,.dl-cm-big tr th:first-child{text-align:left;padding-left:5px;width:28%}
+.dl-cm th.corner,.dl-cm-big th.corner{font-size:7.5px;color:#617a89;font-weight:600}
+.dl-cm td,.dl-cm-big td{background:rgba(201,137,83,calc(var(--a)*.75))}
+.dl-cm td.diag,.dl-cm-big td.diag{background:rgba(79,190,173,calc(var(--a)*.8));color:#fff;font-weight:700}
+.dl-cm td.f1,.dl-cm-big td.f1{background:#0d1720;color:#e4a76d}
+.dl-arch{display:flex;flex-wrap:wrap;align-items:baseline;gap:5px;font:700 11px Consolas,monospace;color:#c9d6dc;background:#0d1720;border:1px solid #1f3140;border-radius:3px;padding:6px 8px}
+.dl-arch b{color:#e4a76d}
+.dl-arch i{color:#5e7787;font-style:normal}
+.dl-arch small{width:100%;font:600 8px Inter,sans-serif;color:#7794a4;letter-spacing:.6px}
+#dlSpec{display:block;width:100%;height:84px;margin-top:6px;background:#0d1720;border:1px solid #1f3140;border-radius:3px}
+.dl-live{margin-top:6px}
+.dl-live-head{font-size:8.5px;font-weight:800;letter-spacing:.8px;color:#7794a4}
+.dl-live-head b{color:#e7e8e9}
+.dl-live-head .ok{color:#77d0bf}
+.dl-live-head .bad{color:#ec7a63}
+.dl-live p{font-size:10px;color:#a3b3be;margin:4px 0 0;line-height:1.45}
+.dl-prob{display:grid;grid-template-columns:52px 1fr 44px;gap:6px;align-items:center;font-size:9.5px;color:#c9d6dc;margin-top:4px}
+.dl-prob i{display:block;height:7px;background:#0d1720;border:1px solid #1f3140;border-radius:2px;overflow:hidden}
+.dl-prob u{display:block;height:100%}
+.dl-prob b{font:700 9.5px Consolas,monospace;text-align:right}
+.dl-terrain{display:block}
+.dl-empty{font-size:10.5px;color:#a3b3be;line-height:1.5}
+.dl-empty b{color:#e7e8e9}
+.dl-empty p{margin:4px 0}
+.dl-empty code{display:block;background:#0d1720;border:1px solid #1f3140;border-radius:3px;padding:7px 9px;font:10px/1.65 Consolas,monospace;color:#e4c49a;margin:6px 0}
+.dl-rep+.dl-rep{margin-top:12px;padding-top:10px;border-top:1px solid #1f3140}
+.dl-rep-head{display:flex;justify-content:space-between;gap:8px;font-size:10px;color:#c9d6dc;margin-bottom:6px}
+.dl-rep-head span{color:#7794a4}
+.dl-foot{display:flex;align-items:center;gap:10px;margin-top:auto;padding-top:8px;font-size:8.5px;color:#6c8494;line-height:1.45}
+.dl-foot button{margin-left:auto;flex-shrink:0}
+.dl-foot button[hidden]{display:none}
+.seg button.fc-tab{border-color:#3a6a62;color:#9fe0d2}.seg button.fc-tab.on{background:#4fbead;border-color:#8ee0cf;color:#0b1d22}.seg button[hidden]{display:none}
+.dl-arch #dlArchText em{font:600 8px Inter,sans-serif;color:#7794a4;font-style:normal;letter-spacing:.5px;margin-left:4px}
+#dlCircuit{display:block;width:100%;height:72px}
+#dlCircuit[hidden],#dlArchText[hidden]{display:none}
+.seg button.q-tab{border-color:#5b4a80;color:#c7b8f0}.seg button.q-tab.on{background:#8f78d6;border-color:#b9a6f2;color:#0e0b1a}
+#dlArchText i{margin:0 4px;font-style:normal;color:#5e7787}
+.meda-row{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)}.dl-pad{display:flex;flex-direction:column;min-height:0}
+@media(max-width:1180px){.meda-row{grid-template-columns:1fr}}
+
+.dl-kpis small{font-size:8px}
+.meda-pad,.dl-pad{container-type:inline-size}
+@container (max-width:500px){.meda-read{grid-template-columns:repeat(3,1fr)}}
+@container (max-width:440px){.dl-body{grid-template-columns:1fr}.dl-col+.dl-col{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start}.dl-col+.dl-col .dl-arch{grid-column:1/-1}#dlSpec{margin-top:0}}

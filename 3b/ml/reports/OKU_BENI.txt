@@ -1,0 +1,1 @@
+Metrik raporlari (JSON) ve karisiklik matrisi gorselleri (PNG) buraya yazilir.

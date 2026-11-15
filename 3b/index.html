@@ -24,6 +24,7 @@
         <button class="btn subtle" id="csvBtn" data-t="dugme.csv"></button>
         <button class="btn subtle" id="reportBtn" data-t="dugme.rapor"></button>
         <button class="btn subtle" id="dataBtn" data-t="dugme.veri"></button>
+        <a class="btn subtle" id="guideLink" href="kilavuz.html" target="_blank" rel="noopener" data-t="dugme.kullanim"></a>
         <button class="btn subtle" id="helpBtn" data-t="dugme.kilavuz"></button>
         <div class="dil-secici" role="group" aria-label="Dil / Language"><button data-dil="tr">TR</button><button data-dil="en">EN</button></div>
         <button class="btn amber" id="resetBtn" data-t="dugme.yeniden"></button>
@@ -36,8 +37,8 @@
           <canvas id="glcanvas" aria-label="Mars 3D"></canvas>
           <div class="viewer-vignette"></div>
           <div class="viewer-top">
-            <div class="view-badge"><span class="live-dot"></span> <span data-t="sahne.rozet"></span> <span class="sep">/</span> <span data-t="sahne.sektor"></span> <span class="sep">/</span> <span id="viewModeLabel"></span></div>
-            <div class="view-telemetry"><span>FPS <b id="fps">—</b></span><span>ρ <b id="hudRho">—</b></span><span>WEBGL <b>2.0</b></span></div>
+            <div class="viewer-top-left"><div class="view-badge"><span class="live-dot"></span> <span data-t="sahne.rozet"></span> <span class="sep">/</span> <span data-t="sahne.sektor"></span> <span class="sep">/</span> <span id="viewModeLabel"></span></div><div class="quality-seg" id="qualitySeg" role="group" data-t-title="kalite.ipucu"><span data-t="kalite.baslik"></span><button data-q="low" data-t="kalite.low"></button><button data-q="medium" data-t="kalite.medium"></button><button data-q="high" data-t="kalite.high"></button></div><div class="quality-seg" id="resSeg" role="group" data-t-title="coz.ipucu"><span data-t="coz.baslik"></span><button data-r="auto" data-t="coz.auto"></button><button data-r="0.75" data-t="coz.0.75"></button><button data-r="1" data-t="coz.1"></button><button data-r="1.5" data-t="coz.1.5"></button><button data-r="2" data-t="coz.2"></button></div></div>
+            <div class="view-telemetry"><span id="padBadge" hidden>🎮 <b id="padAd"></b></span><span>HDG <b id="heading">000</b>°</span><span>FPS <b id="fps">—</b></span><span>ρ <b id="hudRho">—</b></span><span data-t-title="coz.res">RES <b id="resLabel">—</b></span><span>WEBGL <b>2.0</b></span></div>
           </div>
           <div class="crosshair" id="crosshair"><span></span><span></span><span></span><span></span><i></i></div>
           <div class="altitude-ruler" id="altRuler"><small data-t="sahne.irtifa"></small><strong id="hudAlt">0.0</strong><small data-t="sahne.metre"></small><div class="rule-ticks"></div></div>
@@ -70,6 +71,34 @@
           </div>
         </div>
         <div class="lower-panels"><div class="module-pad"><div class="module-head"><span>◈</span> <span data-t="harita.baslik"></span> <small data-t="harita.gercek"></small></div><canvas id="minimap" width="520" height="180"></canvas><div class="legend"><span><i class="drone-dot"></i> <span data-t="harita.drone"></span></span><span><i class="rover-dot"></i> <span data-t="harita.gezgin"></span></span><span><i class="target-dot"></i> <span data-t="harita.numune"></span></span></div></div><div class="module-pad journey"><div class="module-head"><span>◷</span> <span data-t="zaman.baslik"></span> <small>JZR-03</small></div><div class="mission-steps" id="missionSteps"></div><p class="mission-description" id="missionDescription"></p></div></div>
+        <div class="lower-panels meda-row"><div class="module-pad meda-pad" id="medaPanel">
+          <div class="module-head"><span>☁</span> <span data-t="meda.baslik"></span> <small id="medaMeta">JEZERO</small></div>
+          <div class="meda-body">
+            <div class="meda-bar"><div class="seg" id="medaSols"></div><div class="seg" id="medaVars"></div></div>
+            <canvas id="medaChart" aria-label="MEDA"></canvas>
+            <div class="meda-time"><button class="seg-btn" id="medaPlay" hidden>▶</button><button class="seg-btn" id="medaSpeed" hidden>×1</button><input type="range" id="medaTime" min="0" max="1439" step="1" value="540" data-t-title="meda.kaydirici" aria-label="LMST"><b id="medaClock">09:00 LMST</b></div>
+            <div class="meda-read" id="medaRead"></div>
+            <div class="meda-flight" id="medaFlight"></div>
+            <div class="meda-src" id="medaSrc"></div>
+          </div>
+        </div>
+        <div class="module-pad dl-pad" id="dlPanel">
+          <div class="module-head"><span>◬</span> <span data-t="dl.baslik"></span> <small id="dlMeta">—</small></div>
+          <div class="seg dl-tabs" id="dlTabs"><button data-tab="rock" class="on" data-t="dl.sekme.mlp"></button><button data-tab="quantum" class="q-tab" data-t="dl.sekme.q"></button></div>
+          <div class="dl-body" id="dlRock">
+            <div class="dl-col">
+              <div class="dl-kpis"><div><small id="dlK1"></small><strong id="dlAcc">…</strong></div><div><small id="dlK2"></small><strong id="dlF1">…</strong></div><div><small id="dlK3"></small><strong id="dlEpoch">0/40</strong></div></div>
+              <canvas id="dlLoss" aria-label="loss / accuracy"></canvas>
+              <div class="dl-cm" id="dlCm"></div>
+            </div>
+            <div class="dl-col">
+              <div class="dl-arch"><span id="dlArchText"><b data-t="dl.bant"></b><i>→</i>16<i>→</i>16<i>→</i><b data-t="dl.sinif"></b> <em data-t="dl.mimari"></em></span><canvas id="dlCircuit" hidden aria-label="VQC"></canvas><small id="dlCounts"></small></div>
+              <canvas id="dlSpec" aria-label="spectrum"></canvas>
+              <div class="dl-live" id="dlLive"></div>
+            </div>
+          </div>
+          <div class="dl-foot"><span id="dlNote"></span><button class="seg-btn" id="dlRetrain" data-t="dl.yeniden" data-t-title="dl.yenidenIpucu"></button></div>
+        </div></div>
       </section>
       <aside class="sidebar">
         <div class="sidebar-header"><div><span class="kicker" data-t="yan.ust"></span><h2 data-t="yan.baslik"></h2></div><div class="pulse-bars"><span></span><span></span><span></span><span></span><span></span></div></div>
@@ -87,6 +116,7 @@
           <div class="battery-row rover-battery"><div class="battery-name"><span class="little-icon">▰</span><div>RV-01 <small data-t="enerji.gezgin"></small></div></div><b id="roverBatteryText">—</b></div><div class="progress teal"><div id="roverBatteryBar"></div></div>
           <div class="kv" id="powerDetails"></div>
         </div>
+        <div class="sidebar-section"><div class="section-title"><span data-t="zemin.baslik"></span> <span>RV-01 SOIL</span></div><div class="kv" id="soilDetails"></div><div class="soil-bars" id="soilBars"></div></div>
         <div class="sidebar-section"><div class="section-title"><span data-t="atm.baslik"></span> <span>MEDA</span></div><div class="kv" id="atmDetails"></div></div>
         <div class="sidebar-section"><div class="section-title"><span data-t="yz.baslik"></span> <span>ML / DL</span></div><div class="kv" id="aiDetails"></div><div class="science-plot"><canvas id="scienceChart" width="400" height="105"></canvas></div></div>
         <div class="sidebar-section"><div class="section-title"><span data-t="bilim.baslik"></span> <span>SCIENCE</span></div><div class="science-readout"><div><small data-t="bilim.numune"></small><strong id="samples">00</strong></div><div><small data-t="bilim.gonderilen"></small><strong id="sent">00</strong></div></div></div>
@@ -94,13 +124,18 @@
         <div class="sidebar-footer"><span class="green-led"></span> <span data-t="altbilgi.durum"></span> <span id="flightTime">T+00:00:00</span></div>
       </aside>
     </main>
-    <footer class="footer"><span data-t="altbilgi.sol"></span><span><kbd>TAB</kbd> <kbd>W A S D</kbd> <kbd>SPACE</kbd> <kbd>SHIFT</kbd> <kbd>G R F B T</kbd> <kbd>C V</kbd> <kbd>X</kbd> <kbd>1–4</kbd> <kbd>H</kbd></span><span data-t="altbilgi.surum"></span></footer>
+    <footer class="footer"><span data-t="altbilgi.sol"></span><span><kbd>TAB</kbd> <kbd>W A S D</kbd> <kbd>← →</kbd> <kbd>SPACE</kbd> <kbd>SHIFT</kbd> <kbd>G R F B T</kbd> <kbd>C V</kbd> <kbd>X</kbd> <kbd>K</kbd> <kbd>1–4</kbd> <kbd>H</kbd></span><span data-t="altbilgi.surum"></span></footer>
   </div>
   <div class="overlay" id="helpOverlay" hidden><div class="help-dialog"><div class="help-title"><div><small data-t="kilavuz.ust"></small><h2 data-t="kilavuz.baslik"></h2></div><button id="closeHelp" aria-label="✕">✕</button></div>
     <div class="help-grid">
-      <div><h3 data-t="kilavuz.drone"></h3><p><kbd>W A S D</kbd> <span data-t="kilavuz.k1"></span></p><p><kbd>SPACE</kbd> <span data-t="kilavuz.k2"></span></p><p><kbd>SHIFT</kbd> <span data-t="kilavuz.k3"></span></p><p><kbd>Q / E</kbd> <span data-t="kilavuz.k4"></span></p><p><kbd>G</kbd> <span data-t="kilavuz.k5"></span></p><p><kbd>F</kbd> <span data-t="kilavuz.k6"></span></p><p><kbd>B</kbd> <span data-t="kilavuz.k7"></span></p></div>
-      <div><h3 data-t="kilavuz.gezgin"></h3><p><kbd>W / S</kbd> <span data-t="kilavuz.g1"></span></p><p><kbd>A / D</kbd> <span data-t="kilavuz.g2"></span></p><p><kbd>R</kbd> <span data-t="kilavuz.g3"></span></p><p><kbd>T</kbd> <span data-t="kilavuz.g4"></span></p><p><kbd>TAB</kbd> <span data-t="kilavuz.g5"></span></p><p><kbd>1–4</kbd> <span data-t="kilavuz.g6"></span></p><p><kbd>P</kbd> <span data-t="kilavuz.g7"></span></p><p><kbd>X</kbd> <span data-t="kilavuz.g8"></span></p><p><kbd>C / V</kbd> <span data-t="kilavuz.g9"></span></p></div>
+      <div><h3 data-t="kilavuz.drone"></h3><p><kbd>W / S</kbd> <kbd>↑ / ↓</kbd> <span data-t="kilavuz.k1"></span></p><p><kbd>SPACE</kbd> <span data-t="kilavuz.k2"></span></p><p><kbd>SHIFT</kbd> <span data-t="kilavuz.k3"></span></p><p><kbd>A / D</kbd> <span data-t="kilavuz.k1b"></span></p><p><kbd>← / →</kbd> <kbd>Q / E</kbd> <span data-t="kilavuz.k4"></span></p><p><kbd>G</kbd> <span data-t="kilavuz.k5"></span></p><p><kbd>F</kbd> <span data-t="kilavuz.k6"></span></p><p><kbd>B</kbd> <span data-t="kilavuz.k7"></span></p></div>
+      <div><h3 data-t="kilavuz.gezgin"></h3><p><kbd>W / S</kbd> <span data-t="kilavuz.g1"></span></p><p><kbd>A / D</kbd> <kbd>← / →</kbd> <span data-t="kilavuz.g2"></span></p><p><kbd>SPACE</kbd> <span data-t="kilavuz.g2b"></span></p><p><kbd>R</kbd> <span data-t="kilavuz.g3"></span></p><p><kbd>T</kbd> <span data-t="kilavuz.g4"></span></p><p><kbd>TAB</kbd> <span data-t="kilavuz.g5"></span></p><p><kbd>1–4</kbd> <span data-t="kilavuz.g6"></span></p><p><kbd>P</kbd> <span data-t="kilavuz.g7"></span></p><p><kbd>X</kbd> <span data-t="kilavuz.g8"></span></p><p><kbd>C / V</kbd> <span data-t="kilavuz.g9"></span></p><p><kbd>K</kbd> <span data-t="kalite.ipucu"></span></p></div>
     </div>
+    <div class="help-pad"><h3>🎮 <span data-t="pad.baslik"></span></h3><div class="help-pad-grid">
+      <div><b data-t="kilavuz.drone"></b><p><kbd data-t="pad.solCubuk"></kbd> <span data-t="pad.d1"></span></p><p><kbd data-t="pad.sagCubuk"></kbd> <span data-t="pad.d2"></span></p><p><kbd>RT</kbd> <span data-t="pad.d3"></span></p><p><kbd>LT</kbd> <span data-t="kilavuz.k3"></span></p></div>
+      <div><b data-t="kilavuz.gezgin"></b><p><kbd>RT</kbd> <span data-t="pad.g1"></span></p><p><kbd>LT</kbd> <span data-t="pad.g2"></span></p><p><kbd data-t="pad.solCubuk"></kbd> <span data-t="kilavuz.g2"></span></p><p><kbd>B</kbd> <span data-t="kilavuz.g2b"></span></p><p><kbd data-t="pad.sagCubuk"></kbd> <span data-t="pad.g3"></span></p></div>
+      <div><b data-t="pad.dugmeler"></b><p><kbd>A</kbd> <span data-t="pad.b1"></span></p><p><kbd>X</kbd> <span data-t="eylem.tarama"></span> · <kbd>Y</kbd> <span data-t="arac.baslik"></span></p><p><kbd>LB</kbd> <span data-t="eylem.batarya"></span> · <kbd>☰</kbd> <span data-t="kilavuz.g7"></span></p><p><kbd>▲</kbd> <span data-t="eylem.otonom"></span> · <kbd>▼</kbd> <span data-t="eylem.gonder"></span></p><p><kbd>◀ ▶</kbd> <span data-t="kilavuz.g6"></span></p><p><kbd>R3</kbd> <span data-t="pad.b2"></span> · <kbd>⧉</kbd> <span data-t="dugme.kilavuz"></span></p></div>
+    </div><p class="pad-not" data-t="pad.ps"></p><p class="pad-not" data-t="pad.not"></p></div>
     <div class="hint-box" data-t="kilavuz.not"></div><button id="helpDone" class="btn amber" data-t="kilavuz.don"></button></div></div>
   <div class="overlay" id="galleryOverlay" hidden><div class="help-dialog"><div class="help-title"><div><small>UD-07 / RV-01</small><h2 data-t="galeri.baslik"></h2></div><button id="closeGallery" aria-label="✕">✕</button></div><div id="galleryBody" class="gallery-body"></div></div></div>
   <script type="module" src="app.js"></script>
